@@ -6,6 +6,10 @@ The sync engine is my own operational transformation (OT) with a central server.
 
 **Live:** https://duet-six-rose.vercel.app (create a room, open the link on a second device). The server runs on Render's free tier, so the first visit after a quiet spell can take about a minute while it wakes.
 
+**Launch video** (21 s, with sound): click the poster to play [docs/brag.mp4](docs/brag.mp4).
+
+[![Duet launch video: two people, one file, zero lost keystrokes](docs/brag.jpg)](docs/brag.mp4)
+
 ![Two browsers editing one Duet room on the live site](docs/demo.gif)
 
 *Two real browser windows, Asha (left) and Ravi (right), typing in the same room on the live site at the same time. Each sees the other's cursor in the other's colour, and both end up with the same text as the server. The GIF is recorded by `npm run demo` (`packages/bench/src/record-demo.ts`), which also checks that final match.*
