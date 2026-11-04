@@ -8,8 +8,8 @@
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc -p packages/ot && tsc -p packages/server && tsc -p packages/web && tsc -p packages/bench",
-    "server": "npm run start -w @duet/server",
-    "web": "npm run dev -w @duet/web",
+    "server": "npm run start -w @duet/server --",
+    "web": "npm run dev -w @duet/web --",
     "bench": "npm run bench -w @duet/bench --",
     "e2e": "npm run e2e -w @duet/bench --"
   },

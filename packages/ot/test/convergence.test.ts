@@ -15,7 +15,8 @@ function forEachSeed(cases: number, check: (seed: number) => void) {
   }
 }
 
-describe('convergence properties', () => {
+// Thousands of cases per test: allow far more than vitest's 5 s default.
+describe('convergence properties', { timeout: 60_000 * SCALE }, () => {
   it(`TP1: transformed concurrent ops reach the same text (${TP1_CASES} cases)`, () => {
     forEachSeed(TP1_CASES, seed => {
       const rand = rng(seed);
