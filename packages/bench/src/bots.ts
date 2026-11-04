@@ -83,6 +83,15 @@ class Bot {
   get synced() { return this.mode === 'naive' || this.client!.synced; }
   close() { this.ws.close(); }
 
+  /** Round trip of a WebSocket ping frame: the network alone, with no Duet code in the path. */
+  ping() {
+    return new Promise<number>(resolve => {
+      const start = performance.now();
+      this.ws.once('pong', () => resolve(performance.now() - start));
+      this.ws.ping();
+    });
+  }
+
   private send(msg: object) {
     const raw = JSON.stringify(msg);
     if (this.measuring) this.bytesOut += Buffer.byteLength(raw);
@@ -101,6 +110,11 @@ for (const room of rooms) for (const bot of room.bots) await bot.connect(room.id
 for (const room of rooms) room.bots[0].type(STARTER, 0);
 while (!rooms.every(r => r.bots.every(b => b.synced && b.doc.length === STARTER.length))) await sleep(50);
 const mode = rooms[0].bots[0].mode;
+const target = /localhost|127\.0\.0\.1/.test(WS_URL) ? 'local' : new URL(HTTP_URL).hostname.split('.')[0];
+
+// Network baseline: 20 ping frames from one bot, so op round-trips can be compared with the bare network.
+const pings: number[] = [];
+for (let i = 0; i < 20; i++) { pings.push(await rooms[0].bots[0].ping()); await sleep(50); }
 console.log(`${mode} mode: ${ROOMS} room(s) x ${BOTS_PER_ROOM} bots, typing for ${SECONDS}s every ~${RATE_MS}ms, +${LATENCY_MS}ms each way`);
 
 // Typing phase: every bot types its letter at a jittered interval, all at once.
@@ -139,13 +153,15 @@ for (const room of rooms) {
 all.forEach(b => b.close());
 
 const rtts = all.flatMap(b => b.rtts).sort((a, b) => a - b);
-const pct = (p: number) => rtts.length ? +rtts[Math.min(rtts.length - 1, Math.floor(p / 100 * rtts.length))].toFixed(2) : null;
+pings.sort((a, b) => a - b);
+const pct = (xs: number[], p: number) => xs.length ? +xs[Math.min(xs.length - 1, Math.floor(p / 100 * xs.length))].toFixed(2) : null;
 const bytes = all.reduce((s, b) => s + b.bytesOut + b.bytesIn, 0);
 const result = {
-  mode, rooms: ROOMS, botsPerRoom: BOTS_PER_ROOM, bots: all.length, seconds: SECONDS, rateMs: RATE_MS, latencyMs: LATENCY_MS,
+  mode, target, rooms: ROOMS, botsPerRoom: BOTS_PER_ROOM, bots: all.length, seconds: SECONDS, rateMs: RATE_MS, latencyMs: LATENCY_MS,
   starterChars: STARTER.length, avgFinalChars: Math.round(finalLength / ROOMS),
   keystrokes: typed,
-  roundTripMs: mode === 'ot' ? { samples: rtts.length, p50: pct(50), p95: pct(95), p99: pct(99), max: pct(100) } : null,
+  roundTripMs: mode === 'ot' ? { samples: rtts.length, p50: pct(rtts, 50), p95: pct(rtts, 95), p99: pct(rtts, 99), max: pct(rtts, 100) } : null,
+  networkPingMs: { samples: pings.length, p50: pct(pings, 50), p95: pct(pings, 95) },
   wireBytes: bytes, bytesPerKeystroke: +(bytes / typed).toFixed(1),
   lostKeystrokes: lost, lostPercent: +(100 * lost / typed).toFixed(2), divergedRooms,
   botEventLoopLagP99Ms: +(lag.percentile(99) / 1e6).toFixed(2),
@@ -154,5 +170,5 @@ const result = {
 };
 console.log(JSON.stringify(result, null, 2));
 mkdirSync('../../bench/results', { recursive: true });
-writeFileSync(`../../bench/results/${result.date.slice(0, 10)}-${mode}-${ROOMS}x${BOTS_PER_ROOM}-lat${LATENCY_MS}-${runId}.json`, JSON.stringify(result, null, 2) + '\n');
+writeFileSync(`../../bench/results/${result.date.slice(0, 10)}-${target}-${mode}-${ROOMS}x${BOTS_PER_ROOM}-lat${LATENCY_MS}-${runId}.json`, JSON.stringify(result, null, 2) + '\n');
 process.exit(0);
