@@ -7,9 +7,18 @@ const PORT = Number(process.env.PORT ?? 4000);
 const MODE: SyncMode = process.env.DUET_SYNC === 'naive' ? 'naive' : 'ot';
 const MAX_PEERS = Number(process.env.DUET_MAX_PEERS ?? 4);
 const HEARTBEAT_MS = Number(process.env.DUET_HEARTBEAT_MS ?? 30_000);
+const MAX_ROOMS = Number(process.env.DUET_MAX_ROOMS ?? 1000);
+const EMPTY_ROOM_TTL_MS = Number(process.env.DUET_EMPTY_ROOM_TTL_MS ?? 30 * 60_000);
 const ROOM_ID = /^[\w-]{1,64}$/;
 
 const rooms = new Map<string, Room>();
+
+// Rooms live in memory (until the Week 3 op log), so a room nobody has been in for
+// EMPTY_ROOM_TTL_MS is dropped, together with its history. A refresh or short break keeps it.
+setInterval(() => {
+  const cutoff = Date.now() - EMPTY_ROOM_TTL_MS;
+  for (const [id, room] of rooms) if (room.emptySince !== null && room.emptySince < cutoff) rooms.delete(id);
+}, Math.min(60_000, EMPTY_ROOM_TTL_MS));
 
 const http = createServer((req, res) => {
   // Liveness check for the host (Render pings this before routing traffic).
@@ -56,6 +65,7 @@ wss.on('connection', ws => {
 
     if (!member) {
       if (msg.t !== 'join' || typeof msg.room !== 'string' || !ROOM_ID.test(msg.room)) return fail('join first');
+      if (!rooms.has(msg.room) && rooms.size >= MAX_ROOMS) return fail('server is full, try again later');
       room = rooms.get(msg.room) ?? new Room(msg.room, MODE, MAX_PEERS);
       rooms.set(room.id, room);
       member = room.join(ws, String(msg.name ?? ''));

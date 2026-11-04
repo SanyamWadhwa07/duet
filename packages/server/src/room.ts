@@ -15,6 +15,8 @@ export function send(ws: WebSocket, msg: ServerMsg) {
 export class Room {
   readonly doc = new ServerDoc();
   readonly members = new Map<string, Member>();
+  /** When the last member left (ms since epoch), or null while someone is in the room. */
+  emptySince: number | null = Date.now();
 
   constructor(readonly id: string, readonly mode: SyncMode, readonly maxPeers: number) {}
 
@@ -34,11 +36,13 @@ export class Room {
     });
     this.broadcast(member, { t: 'join', peer: peerInfo(member) });
     this.members.set(member.id, member);
+    this.emptySince = null;
     return member;
   }
 
   leave(member: Member) {
     if (this.members.delete(member.id)) this.broadcast(member, { t: 'leave', id: member.id });
+    if (this.members.size === 0) this.emptySince = Date.now();
   }
 
   /** Handles one message from a member. Throws on a protocol violation; the caller disconnects them. */
