@@ -1,0 +1,83 @@
+import { useEffect, useState } from 'react';
+import { Mark } from './Mark';
+
+// The headline is typed by two carets taking turns, the way two people share a Duet room.
+const LINES: [string, 'amber' | 'azure'][] = [['Two people, one editor,', 'amber'], [' every keystroke kept.', 'azure']];
+const FULL = LINES.map(([t]) => t).join('');
+const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function TypedHeadline() {
+  const [shown, setShown] = useState(() => (reducedMotion() ? FULL.length : 0));
+  useEffect(() => {
+    if (shown >= FULL.length) return;
+    const timer = setTimeout(() => setShown(n => n + 1), shown === 0 ? 400 : 55);
+    return () => clearTimeout(timer);
+  }, [shown]);
+
+  let used = 0;
+  let caret: 'amber' | 'azure' = 'amber';
+  const parts = LINES.map(([text, who]) => {
+    const visible = text.slice(0, Math.max(0, shown - used));
+    if (shown > used) caret = who;
+    used += text.length;
+    return visible;
+  });
+  // The invisible full line reserves the final height, so nothing below moves while it types.
+  return (
+    <h1 className="headline" aria-label={FULL}>
+      <span className="reserve" aria-hidden="true">{LINES[0][0]}<br />{LINES[1][0].trim()}</span>
+      <span className="typed" aria-hidden="true">
+        {parts[0]}{parts[1] && <><br />{parts[1].trimStart()}</>}<span className={`caret ${caret}`} />
+      </span>
+    </h1>
+  );
+}
+
+type Props = { room: string | null; name: string; setName(n: string): void; onEnter(e: React.FormEvent): void };
+
+/** The front page, and the join screen when someone opens a room link. */
+export function Landing({ room, name, setName, onEnter }: Props) {
+  const form = (
+    <form className="start" onSubmit={onEnter}>
+      <label className="sr-only" htmlFor="name">Your name</label>
+      <input id="name" autoFocus required maxLength={32} placeholder="Your name" value={name} onChange={e => setName(e.target.value)} />
+      <button>{room ? 'Join the room' : 'Start a room'}</button>
+    </form>
+  );
+
+  if (room) {
+    return (
+      <main className="paper join">
+        <a className="brand" href="/"><Mark /> Duet</a>
+        <h1 className="join-title">You're invited to a coding room.</h1>
+        <p className="lede">Enter your name so the others know who's typing.</p>
+        {form}
+      </main>
+    );
+  }
+
+  return (
+    <main className="paper landing">
+      <nav className="nav">
+        <span className="brand"><Mark /> Duet</span>
+        <a href="https://github.com/SanyamWadhwa07/duet">Source on GitHub</a>
+      </nav>
+      <TypedHeadline />
+      <p className="lede">A free room for mock coding interviews. Share one link, write and run code together, and check it against test cases. No sign-up.</p>
+      {form}
+      <p className="hint">Joining someone else's room? Open the link they sent you.</p>
+
+      <ol className="steps">
+        <li><strong>Start a room and send the link.</strong> Up to four people can join.</li>
+        <li><strong>Write the problem and the code together.</strong> You see each other's cursor as you type.</li>
+        <li><strong>Run it against test cases.</strong> JavaScript and Python run in the browser, and everyone sees the result.</li>
+      </ol>
+
+      <p className="proof">
+        Duet keeps every keystroke because it syncs edits as small operations ordered by a server, not as whole-file copies.
+        Measured over a real network with two people typing at once, sending the whole file lost 49% of keystrokes; Duet lost none.{' '}
+        <a href="https://github.com/SanyamWadhwa07/duet/blob/main/docs/METRICS.md">How this was measured</a>
+      </p>
+    </main>
+  );
+}
