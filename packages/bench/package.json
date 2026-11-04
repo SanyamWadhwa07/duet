@@ -5,7 +5,8 @@
   "scripts": {
     "bench": "tsx src/bots.ts",
     "e2e": "tsx src/e2e.ts",
-    "demo": "tsx src/record-demo.ts"
+    "demo": "tsx src/record-demo.ts",
+    "recovery": "tsx src/recovery.ts"
   },
   "dependencies": {
     "@duet/ot": "*",
