@@ -11,6 +11,11 @@ const ROOM_ID = /^[\w-]{1,64}$/;
 const rooms = new Map<string, Room>();
 
 const http = createServer((req, res) => {
+  // Liveness check for the host (Render pings this before routing traffic).
+  if (req.url === '/health') {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    return void res.end(JSON.stringify({ ok: true, mode: MODE, rooms: rooms.size }));
+  }
   // Read-only room state, used by the e2e test to compare browser tabs with the server.
   const match = req.url?.match(/^\/api\/rooms\/([\w-]{1,64})$/);
   const room = match && rooms.get(match[1]);
