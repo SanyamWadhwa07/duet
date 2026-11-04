@@ -12,7 +12,8 @@ export type SavedDoc = { base: number; text: string; ops: Op[] };
 /** The small per-room state saved alongside the op log. `hostKey` is the interviewer key (a secret). */
 export type RoomRow = { settings: RoomSettings; lastRun: RunReport | null; title: string; hostKey: string | null };
 export type SavedRoom = Partial<RoomRow> & { docs: Record<DocId, SavedDoc> };
-export type RecentRoom = { room: string; title: string; lastSeen: string };
+/** A room in "Your sessions": its name (set by the interviewer), the problem's title, and when this browser was last in it. */
+export type RecentRoom = { room: string; name: string; title: string; lastSeen: string };
 
 export interface Store {
   /** The room's latest snapshot per document plus every op after it, or null for a new room. */
@@ -130,9 +131,10 @@ export async function postgresStore(url: string): Promise<Store> {
     },
     async recent(user) {
       const r = await pool.query(
-        `select v.room_id, r.title, v.last_seen from duet.visits v join duet.rooms r on r.id = v.room_id
-         where v.user_id = $1 order by v.last_seen desc limit 20`, [user]);
-      return r.rows.map(row => ({ room: row.room_id, title: row.title, lastSeen: row.last_seen.toISOString() }));
+        `select v.room_id, coalesce(r.settings->>'name', '') as name, r.title, v.last_seen
+         from duet.visits v join duet.rooms r on r.id = v.room_id
+         where v.user_id = $1 order by v.last_seen desc limit 50`, [user]);
+      return r.rows.map(row => ({ room: row.room_id, name: row.name, title: row.title, lastSeen: row.last_seen.toISOString() }));
     },
   };
 }

@@ -42,19 +42,19 @@ const ago = (iso: string) => {
   return `${Math.round(minutes / 1440)} days ago`;
 };
 
-/** Rooms this browser has been in, so a mock interview can be picked up again. Hidden when there are none. */
-function YourRooms() {
+/** Sessions this browser has been in, newest first, so a mock interview can be picked up again. */
+function YourSessions() {
   const [rooms, setRooms] = useState<RecentRoom[]>([]);
   useEffect(() => { recentRooms().then(setRooms, () => {}); }, []);
   if (!rooms.length) return null;
   return (
-    <section className="your-rooms" aria-label="Your rooms">
-      <h2>Your rooms</h2>
+    <section className="your-rooms" aria-label="Your sessions">
+      <h2>Your sessions</h2>
       <ul>
         {rooms.map(r => (
           <li key={r.room}>
-            <a href={`/r/${r.room}`}>{r.title || 'Untitled room'}</a>
-            <span>Room {r.room}, opened {ago(r.lastSeen)}</span>
+            <a href={`/r/${r.room}`}>{r.name || r.title || 'Untitled session'}</a>
+            <span>{r.name && r.title ? `${r.title}, opened` : 'Opened'} {ago(r.lastSeen)}</span>
           </li>
         ))}
       </ul>
@@ -68,19 +68,27 @@ type Props = {
   isHost: boolean;
   name: string;
   setName(n: string): void;
-  onEnter(e: React.FormEvent, asCandidate?: boolean): void;
+  onEnter(e: React.FormEvent, options?: { asCandidate?: boolean; sessionName?: string }): void;
 };
 
 /** The front page, and the join screen when someone opens a room link. */
 export function Landing({ room, isHost, name, setName, onEnter }: Props) {
+  const [sessionName, setSessionName] = useState('');
   const form = (
-    <form className="start" onSubmit={onEnter}>
+    <form className="start" onSubmit={e => onEnter(e, { sessionName })}>
       <label className="sr-only" htmlFor="name">Your name</label>
       <input id="name" autoFocus required maxLength={32} placeholder="Your name" value={name} onChange={e => setName(e.target.value)} />
-      <button>{!room ? 'Start a room' : isHost ? 'Join as interviewer' : 'Join the room'}</button>
+      {!room && (
+        <>
+          <label className="sr-only" htmlFor="session">Session name (optional)</label>
+          <input id="session" maxLength={80} placeholder="Session name (optional), e.g. Mock with Ravi"
+            value={sessionName} onChange={e => setSessionName(e.target.value)} />
+        </>
+      )}
+      <button>{!room ? 'Start a session' : isHost ? 'Join as interviewer' : 'Join the room'}</button>
       {isHost && (
         <button type="button" className="secondary"
-          onClick={e => { const f = e.currentTarget.form!; if (f.reportValidity()) onEnter(e, true); }}>
+          onClick={e => { const f = e.currentTarget.form!; if (f.reportValidity()) onEnter(e, { asCandidate: true }); }}>
           Join as candidate
         </button>
       )}
@@ -112,10 +120,10 @@ export function Landing({ room, isHost, name, setName, onEnter }: Props) {
       <p className="lede">A free room for mock coding interviews. Share one link, write and run code together, and check it against test cases. No sign-up.</p>
       {form}
       <p className="hint">Joining someone else's room? Open the link they sent you.</p>
-      <YourRooms />
+      <YourSessions />
 
       <ol className="steps">
-        <li><strong>Start a room and send the link.</strong> Up to four people can join.</li>
+        <li><strong>Start a session and send the link.</strong> Up to four people can join, and it's saved to come back to.</li>
         <li><strong>Write the problem and the code together.</strong> You see each other's cursor as you type.</li>
         <li><strong>Run it against test cases.</strong> JavaScript and Python run in the browser, and everyone sees the result.</li>
       </ol>

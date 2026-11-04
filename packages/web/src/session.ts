@@ -39,7 +39,7 @@ export function browserId() {
   return id;
 }
 
-export type RecentRoom = { room: string; title: string; lastSeen: string };
+export type RecentRoom = { room: string; name: string; title: string; lastSeen: string };
 /** The rooms this browser has been in, newest first. Empty if the server keeps no history. */
 export async function recentRooms(): Promise<RecentRoom[]> {
   const res = await fetch(serverHttp(`/api/recent?user=${encodeURIComponent(browserId())}`));

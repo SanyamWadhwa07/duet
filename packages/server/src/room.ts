@@ -144,9 +144,9 @@ export class Room {
       }
       case 'settings': {
         const change = cleanSettings(msg.settings);
-        // Anyone may pick the language; the tests and the timer belong to the interviewer.
-        if (member.role !== 'interviewer' && ('tests' in change || 'timerStartedAt' in change)) {
-          throw new Error('only the interviewer can change the tests or the timer');
+        // Anyone may pick the language; the name, tests and timer belong to the interviewer.
+        if (member.role !== 'interviewer' && ('tests' in change || 'timerStartedAt' in change || 'name' in change)) {
+          throw new Error('only the interviewer can change the session name, tests or timer');
         }
         this.settings = { ...this.settings, ...change };
         this.broadcast(null, { t: 'settings', settings: this.settings });
@@ -212,6 +212,10 @@ function cleanSettings(s: Partial<RoomSettings>): Partial<RoomSettings> {
   if ('timerStartedAt' in s) {
     if (s.timerStartedAt !== null && !Number.isSafeInteger(s.timerStartedAt)) throw new Error('bad timer');
     out.timerStartedAt = s.timerStartedAt;
+  }
+  if ('name' in s) {
+    if (!isText(s.name, 80)) throw new Error('bad session name');
+    out.name = s.name!.trim();
   }
   return out;
 }

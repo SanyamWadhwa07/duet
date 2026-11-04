@@ -21,15 +21,17 @@ export function App() {
   const [name, setName] = useState(() => localStorage.getItem('duet:name') ?? '');
   const [entered, setEntered] = useState(false);
   const [asCandidate, setAsCandidate] = useState(false);
+  const [sessionName, setSessionName] = useState('');
   useEffect(wakeServer, []);
 
   // Joining as a candidate simply leaves the interviewer key at home.
   const hostKey = room && !asCandidate ? localStorage.getItem(keyName(room)) : null;
-  if (room && entered) return <Room room={room} name={name.trim()} hostKey={hostKey} />;
+  if (room && entered) return <Room room={room} name={name.trim()} hostKey={hostKey} initialSessionName={sessionName.trim()} />;
 
-  const enter = (e: React.FormEvent, candidate = false) => {
+  const enter = (e: React.FormEvent, options: { asCandidate?: boolean; sessionName?: string } = {}) => {
     e.preventDefault();
-    setAsCandidate(candidate);
+    setAsCandidate(!!options.asCandidate);
+    setSessionName(options.sessionName ?? '');
     localStorage.setItem('duet:name', name);
     // Creating a room goes straight in, as its interviewer: change the URL without reloading.
     if (!room) {

@@ -41,7 +41,8 @@ const MAX_UPLOAD_BYTES = 100_000;
 const setText = (model: monaco.editor.ITextModel, text: string) =>
   model.pushEditOperations([], [{ range: model.getFullModelRange(), text }], () => null);
 
-export function Room({ room, name, hostKey }: { room: string; name: string; hostKey: string | null }) {
+export function Room({ room, name, hostKey, initialSessionName = '' }:
+  { room: string; name: string; hostKey: string | null; initialSessionName?: string }) {
   const codeHost = useRef<HTMLDivElement>(null);
   const problemHost = useRef<HTMLDivElement>(null);
   const session = useRef<RoomSession | null>(null);
@@ -90,6 +91,15 @@ export function Room({ room, name, hostKey }: { room: string; name: string; host
 
   // A new run (yours or someone else's) opens the output.
   useEffect(() => { if (state.lastRun) setTab('output'); }, [state.lastRun?.at]);
+
+  // A name typed on the start form becomes the session's name once the room is ready.
+  const named = useRef(false);
+  useEffect(() => {
+    if (named.current || !settings || state.role !== 'interviewer') return;
+    named.current = true;
+    if (initialSessionName && !settings.name) session.current!.updateSettings({ name: initialSessionName });
+  }, [settings, state.role, initialSessionName]);
+  useEffect(() => { document.title = settings?.name ? `${settings.name}: Duet` : 'Duet'; }, [settings?.name]);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -155,7 +165,10 @@ export function Room({ room, name, hostKey }: { room: string; name: string; host
     <div className="room">
       <header className="topbar">
         <a className="brand" href="/" aria-label="Duet home"><Mark /> Duet</a>
+        <SessionName value={settings?.name ?? ''} editable={isInterviewer && connected}
+          onSave={value => session.current?.updateSettings({ name: value })} />
         {state.role && <span className={`badge ${state.role}`}>{state.role === 'interviewer' ? "You're the interviewer" : "You're a candidate"}</span>}
+        <a className="ghost" href="/">New session</a>
         <button className="ghost" onClick={() => copy(roomLink, 'Candidate link copied')}>
           {isInterviewer ? 'Invite candidate' : 'Copy room link'}
         </button>
@@ -237,6 +250,19 @@ export function Room({ room, name, hostKey }: { room: string; name: string; host
       </main>
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>
+  );
+}
+
+/** The session's name: an inline field for the interviewer (saved on Enter or when it loses focus), text for others. */
+function SessionName({ value, editable, onSave }: { value: string; editable: boolean; onSave(v: string): void }) {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => setDraft(value), [value]);
+  if (!editable) return value ? <span className="session-name">{value}</span> : null;
+  const save = () => { if (draft.trim() !== value) onSave(draft.trim()); };
+  return (
+    <input className="session-name" aria-label="Session name" placeholder="Name this session" maxLength={80}
+      value={draft} onChange={e => setDraft(e.target.value)} onBlur={save}
+      onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }} />
   );
 }
 

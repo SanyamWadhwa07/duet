@@ -86,6 +86,10 @@ body:has(.paper) { background: var(--paper); }
 .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
 .dot.you { background: var(--mute); }
 .people .role { margin-left: 6px; font-size: 12px; color: var(--mute); }
+.session-name { font-family: var(--display); font-weight: 600; font-size: 16px; }
+input.session-name { background: transparent; border: 1px solid transparent; border-radius: 6px; padding: 3px 8px; width: 16ch; }
+input.session-name:hover, input.session-name:focus { border-color: var(--line); background: var(--graphite); }
+.topbar a.ghost { text-decoration: none; }
 .badge { font-size: 13px; font-weight: 600; padding: 3px 10px; border-radius: 999px; }
 .badge.interviewer { background: #3A3220; color: #F2C14E; }
 .badge.candidate { background: #1D3141; color: #A5D8FF; }

@@ -13,7 +13,13 @@ export type DocId = 'code' | 'problem';
 export type Language = 'javascript' | 'python' | 'cpp';
 export type TestCase = { input: string; expected: string };
 /** Small shared room state. Last writer wins: rarely edited by two people at once. */
-export type RoomSettings = { language: Language; tests: TestCase[]; timerStartedAt: number | null };
+export type RoomSettings = {
+  /** The session's name, e.g. "Mock with Ravi: graphs". Empty until the interviewer names it. */
+  name?: string;
+  language: Language;
+  tests: TestCase[];
+  timerStartedAt: number | null;
+};
 export type RunStatus = 'passed' | 'failed' | 'ran' | 'error' | 'timeout';
 export type TestResult = { input: string; expected: string | null; output: string; error: string; ms: number; status: RunStatus };
 /** One press of Run, shown to everyone in the room. `by` and `at` are set by the server. */
