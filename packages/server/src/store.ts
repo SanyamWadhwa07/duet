@@ -3,9 +3,11 @@
 // saved and rooms live only in memory, as in Week 1.
 import { readFileSync } from 'node:fs';
 import pg from 'pg';
-import type { DocId, Op, RoomSettings, RunReport } from '@duet/ot';
+import type { DocId, History, HistoryOp, Op, RoomSettings, RunReport } from '@duet/ot';
 
 export const SNAPSHOT_EVERY = 200;
+/** The most ops per document a replay loads (an hour of fast typing is a few thousand). */
+const MAX_REPLAY_OPS = 100_000;
 const DOCS: DocId[] = ['code', 'problem'];
 
 /** `authors[k]` is the client id of the page that sent `ops[k]` (null for ops saved before ids existed). */
@@ -26,6 +28,8 @@ export interface Store {
   /** Remembers that this browser (or signed-in user) was in this room, for the "Your rooms" list. */
   visit(user: string, room: string): Promise<void>;
   recent(user: string): Promise<RecentRoom[]>;
+  /** Everything typed in a saved room, for replay; null if the room isn't saved. */
+  history(room: string): Promise<History | null>;
 }
 
 export const memoryStore: Store = {
@@ -35,6 +39,7 @@ export const memoryStore: Store = {
   saveRoom: async () => {},
   visit: async () => {},
   recent: async () => [],
+  history: async () => null,
 };
 
 // Tables live in their own schema, not `public`: hosted Postgres (Supabase) can publish `public`
@@ -141,6 +146,25 @@ export async function postgresStore(url: string): Promise<Store> {
          from duet.visits v join duet.rooms r on r.id = v.room_id
          where v.user_id = $1 order by v.last_seen desc limit 50`, [user]);
       return r.rows.map(row => ({ room: row.room_id, name: row.name, title: row.title, lastSeen: row.last_seen.toISOString() }));
+    },
+    async history(room) {
+      const r = await pool.query('select settings, title from duet.rooms where id = $1', [room]);
+      if (!r.rowCount) return null;
+      const docs = {} as Record<DocId, HistoryOp[]>;
+      for (const doc of DOCS) {
+        const ops = await pool.query(
+          'select rev, op, author, created_at from duet.ops where room_id = $1 and doc = $2 order by rev limit $3',
+          [room, doc, MAX_REPLAY_OPS]);
+        // Ops lost while the database was down leave a gap, and a replay can't apply past one.
+        const list: HistoryOp[] = [];
+        for (const row of ops.rows) {
+          if (row.rev !== list.length) break;
+          list.push({ at: row.created_at.getTime(), by: row.author, op: row.op });
+        }
+        docs[doc] = list;
+      }
+      const settings: Partial<RoomSettings> = r.rows[0].settings ?? {};
+      return { name: settings.name ?? '', title: r.rows[0].title, language: settings.language ?? 'python', ...docs };
     },
   };
 }

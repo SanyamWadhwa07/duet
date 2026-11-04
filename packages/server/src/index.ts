@@ -60,6 +60,19 @@ const http = createServer(async (req, res) => {
     }
   }
 
+  // Everything typed in a saved room, for the replay page. Anyone with the room's link can already join it
+  // and read the text, so the history is open to the same people. Cross-origin, like /api/recent.
+  const replay = url.pathname.match(/^\/api\/rooms\/([\w-]{1,64})\/history$/);
+  if (replay) {
+    const cors = { 'access-control-allow-origin': '*' };
+    try {
+      const history = await store.history(replay[1]);
+      return history ? json(res, history, cors) : void res.writeHead(404, cors).end();
+    } catch {
+      return void res.writeHead(503, cors).end();
+    }
+  }
+
   // Read-only room state, used by the e2e test to compare browser tabs with the server.
   const match = url.pathname.match(/^\/api\/rooms\/([\w-]{1,64})$/);
   const room = match && rooms.has(match[1]) ? await rooms.get(match[1]) : null;

@@ -54,7 +54,9 @@ function YourSessions() {
         {rooms.map(r => (
           <li key={r.room}>
             <a href={`/r/${r.room}`}>{r.name || r.title || 'Untitled session'}</a>
-            <span>{r.name && r.title ? `${r.title}, opened` : 'Opened'} {ago(r.lastSeen)}</span>
+            <span>
+              {r.name && r.title ? `${r.title}, opened` : 'Opened'} {ago(r.lastSeen)} · <a className="replay-link" href={`/r/${r.room}/replay`}>Replay</a>
+            </span>
           </li>
         ))}
       </ul>

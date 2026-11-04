@@ -161,6 +161,17 @@ input.session-name:hover, input.session-name:focus { border-color: var(--line); 
 .block pre { margin: 0; font-family: var(--code); white-space: pre-wrap; word-break: break-word; }
 .block.error pre { color: #FFA8A8; }
 
+/* ---------- Replay ---------- */
+.replay .panes { grid-template-rows: minmax(0, 1fr); grid-template-areas: "problem code"; }
+.player { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 10px 16px; background: var(--rail); border-top: 1px solid var(--line); }
+.player input[type=range] { flex: 1 1 240px; accent-color: var(--text); }
+.player .clock { font-family: var(--code); font-size: 13px; font-variant-numeric: tabular-nums; color: var(--mute); }
+.player .typist { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; min-width: 9ch; }
+.speeds { display: flex; gap: 4px; }
+.speeds .ghost[aria-pressed="true"] { background: var(--text); color: var(--graphite); border-color: var(--text); }
+.badge.neutral { background: #33373F; color: var(--text); }
+.your-rooms span .replay-link { font-weight: 500; }
+
 .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--graphite); padding: 8px 16px; border-radius: 8px; font-weight: 600; font-size: 14px; }
 
 @media (max-width: 900px) {
@@ -168,6 +179,7 @@ input.session-name:hover, input.session-name:focus { border-color: var(--line); 
   .problem-pane { border-right: 0; border-bottom: 1px solid var(--line); }
   .console { min-height: 260px; }
   .controls { margin-left: 0; }
+  .replay .panes { grid-template-rows: 30vh minmax(50vh, 1fr); grid-template-areas: "problem" "code"; }
   .test { grid-template-columns: 1fr; }
   .test-side { flex-direction: row; padding-top: 0; }
 }

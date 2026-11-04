@@ -245,6 +245,28 @@ The first run showed the problem, language and code restored but **the 4 test ca
 
 **Wire cost:** op, ack and broadcast messages are unchanged, so the bytes per keystroke in §4 and §5 still hold. Only the join message grew: a client id and two revision numbers.
 
+## 10. Replay (2026-11-05)
+
+**Exit test** (`npm run e2e`, extended; local server with Postgres):
+- **Session:** 3 tabs in headless Edge type and delete at random for 10 s, including two-cursor edits and auto-closed brackets.
+- **Replay:** after the tabs converge, the replay page opens on the finished session (text rebuilt from the log), then plays every edit from the start at 16× (applied to the editor in small steps).
+- **Check:** both the opening text and the played-back text must equal the server's final text.
+
+| Run | Edits typed | Ops committed | Opened on final text | Played back to final text |
+|---|---:|---:|---|---|
+| 3 tabs, 10 s | 1,038 | 1,028 | yes | yes |
+
+**Mutation check:** removing the replay editor's `\n` line-ending pin made the same test fail (opened: no, played: no).
+
+**Session check** (one-off script; two people, an example problem, 213 code ops):
+- The page opened on the final text.
+- It played at 4× to the final text.
+- Scrubbing to the middle and pressing End gave the final text again.
+- An unknown room showed "wasn't saved".
+- A raw client sending an op with `\r` was refused.
+
+**Bugs these checks found before shipping:** both were line endings (DESIGN §16). The replay editor defaulted to `\r\n` on Windows, and `setValue('')` reset it again on "Play from the start".
+
 ---
 
 ## Resume lines (SDE resume v3.2, 2026-11-04)

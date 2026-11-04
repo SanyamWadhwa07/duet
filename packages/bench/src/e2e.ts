@@ -1,7 +1,8 @@
 // Week-1 exit test. Opens TABS real browser tabs (headless Edge) in one room. Every tab types and deletes
 // at random positions at the same time, through Monaco's own typing commands (so auto-closing brackets,
 // auto-indent and multi-cursor edits all go through the real binding). When typing stops, every tab
-// must hold exactly the server's text.
+// must hold exactly the server's text. With a database on the server, the replay page must then play the
+// session back to exactly that text too (the Week 3 exit test).
 //   WEB_URL=http://localhost:5173 TABS=2 SECONDS=10 npm run e2e
 import { chromium, type Page } from 'playwright-core';
 
@@ -66,11 +67,33 @@ for (const deadline = Date.now() + 20_000; Date.now() < deadline; await sleep(25
   texts = states.map(s => s.text);
   if (states.every(s => s.synced) && texts.every(t => t === server.text)) { result = 'PASS'; break; }
 }
+
+// Replay: it opens on the finished session (rebuilt from the log), then plays every edit from the start.
+let replay = 'skipped (the server has no database, so the session is not saved)';
+if (result === 'PASS') {
+  const page = await (await browser.newContext()).newPage();
+  await page.addInitScript({ content: 'window.__name = f => f' });
+  page.on('pageerror', e => errors.push(`replay: ${e.message}`));
+  await page.goto(`${WEB}/r/${room}/replay`);
+  await page.waitForSelector('button.run:not([disabled]), .placeholder.code');
+  if (await page.locator('button.run:not([disabled])').count()) {
+    const text = () => page.evaluate(() => (window as any).duet.editor.getValue() as string);
+    const opened = await text();
+    await page.click('button[aria-pressed]:has-text("16×")');
+    await page.click('button.run');
+    await page.waitForSelector('button.run:has-text("Pause")');
+    await page.waitForSelector('button.run:has-text("Play from the start")', { timeout: 60_000 });
+    const played = await text();
+    replay = opened === server.text && played === server.text ? 'PASS' : `FAIL (opened ${opened === server.text}, played ${played === server.text})`;
+    if (replay !== 'PASS') result = 'FAIL';
+  }
+}
 await browser.close();
 
 console.log(`edits per tab: ${edits.join(', ')} (total ${edits.reduce((a, b) => a + b, 0)})`);
 console.log(`server revision ${server.revision}, final length ${server.text.length}`);
 console.log(`tab lengths: ${texts.map(t => t.length).join(', ')}`);
+console.log(`replay to the final text: ${replay}`);
 if (errors.length) { console.log('page errors:', errors); result = 'FAIL'; }
-console.log(result === 'PASS' ? 'PASS: all tabs identical to the server' : 'FAIL: tabs diverged');
+console.log(result === 'PASS' ? 'PASS: all tabs identical to the server' : 'FAIL: tabs diverged, or the replay differs');
 process.exit(result === 'PASS' ? 0 : 1);

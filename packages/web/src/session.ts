@@ -2,7 +2,7 @@
 // in sync with OT; presence (who is here, where their cursor is), settings and run reports ride along.
 import {
   apply, OpBuilder, OTClient, transformIndex,
-  type CatchUp, type ClientMsg, type Op, type Peer, type Role, type RoomSettings, type RunReport, type Selection, type ServerMsg, type SyncMode,
+  type CatchUp, type ClientMsg, type History, type Op, type Peer, type Role, type RoomSettings, type RunReport, type Selection, type ServerMsg, type SyncMode,
 } from '@duet/ot';
 import { monaco } from './monaco';
 
@@ -37,6 +37,14 @@ export function browserId() {
     localStorage.setItem('duet:user', id);
   }
   return id;
+}
+
+/** A saved room's history, for the replay page. Null if the server has no saved copy of the room. */
+export async function roomHistory(room: string): Promise<History | null> {
+  const res = await fetch(serverHttp(`/api/rooms/${encodeURIComponent(room)}/history`));
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`the server answered ${res.status}`);
+  return res.json();
 }
 
 export type RecentRoom = { room: string; name: string; title: string; lastSeen: string };
@@ -115,23 +123,9 @@ class DocBinding {
     this.client.local(op);
   }
 
-  /** Applies a remote op to Monaco as one batch of edits, all positioned against the current text. */
+  /** Applies a remote op to Monaco as one batch of edits. */
   private applyRemote(op: Op) {
-    const edits: monaco.editor.IIdentifiedSingleEditOperation[] = [];
-    let index = 0;
-    for (let i = 0; i < op.length; i++) {
-      const c = op[i];
-      if (typeof c === 'number' && c > 0) { index += c; continue; }
-      let text = '', del = 0;
-      if (typeof c === 'string') {
-        text = c;
-        const next = op[i + 1];
-        if (typeof next === 'number' && next < 0) { del = -next; i++; } // insert + delete here = one replace
-      } else del = -c;
-      edits.push({ range: rangeOf(this.model, index, index + del), text });
-      index += del;
-    }
-    this.withRemote(() => this.model.applyEdits(edits));
+    this.withRemote(() => this.model.applyEdits(opToEdits(this.model, op)));
     this.onOp(op);
   }
 
@@ -336,6 +330,25 @@ export class RoomSession {
 const rangeOf = (model: monaco.editor.ITextModel, from: number, to: number) =>
   monaco.Range.fromPositions(model.getPositionAt(from), model.getPositionAt(to));
 
+/** An op as Monaco edits, all positioned against the model's current text (as one batch expects). */
+export function opToEdits(model: monaco.editor.ITextModel, op: Op): monaco.editor.IIdentifiedSingleEditOperation[] {
+  const edits: monaco.editor.IIdentifiedSingleEditOperation[] = [];
+  let index = 0;
+  for (let i = 0; i < op.length; i++) {
+    const c = op[i];
+    if (typeof c === 'number' && c > 0) { index += c; continue; }
+    let text = '', del = 0;
+    if (typeof c === 'string') {
+      text = c;
+      const next = op[i + 1];
+      if (typeof next === 'number' && next < 0) { del = -next; i++; } // insert + delete here = one replace
+    } else del = -c;
+    edits.push({ range: rangeOf(model, index, index + del), text });
+    index += del;
+  }
+  return edits;
+}
+
 /**
  * Turns one Monaco change event into one op. All ranges in an event refer to the text *before*
  * the event (Monaco lists multi-cursor changes so they can be applied end-to-start).
@@ -355,7 +368,7 @@ export function changesToOp(changes: readonly monaco.editor.IModelContentChange[
 
 /** One CSS class per peer colour, created the first time the colour is seen. */
 const styled = new Set<string>();
-function colorClass(color: string) {
+export function colorClass(color: string) {
   const cls = `peer-${color.replace(/[^\w]/g, '')}`;
   if (!styled.has(cls)) {
     styled.add(cls);

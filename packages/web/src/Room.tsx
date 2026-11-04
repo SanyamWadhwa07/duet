@@ -24,7 +24,7 @@ const RESULT_TEXT: Record<TestResult['status'], string> = {
   passed: 'Passed', failed: 'Wrong answer', error: 'Error', timeout: 'Time limit', ran: 'Ran',
 };
 
-const EDITOR: monaco.editor.IStandaloneEditorConstructionOptions = {
+export const EDITOR: monaco.editor.IStandaloneEditorConstructionOptions = {
   theme: 'duet', automaticLayout: true, minimap: { enabled: false }, scrollBeyondLastLine: false,
   fontFamily: "'JetBrains Mono', Consolas, monospace", fontSize: 14, padding: { top: 14 },
 };
@@ -34,7 +34,7 @@ monaco.editor.defineTheme('duet', {
 });
 
 /** Problem statements are Markdown written by anyone in the room, so the HTML is sanitised. */
-const renderMarkdown = (text: string) => DOMPurify.sanitize(marked.parse(text, { async: false }) as string);
+export const renderMarkdown = (text: string) => DOMPurify.sanitize(marked.parse(text, { async: false }) as string);
 const MAX_UPLOAD_BYTES = 100_000;
 
 /** Replaces a model's text as a normal edit, so it is sent to the room like typing. */
@@ -169,6 +169,7 @@ export function Room({ room, name, hostKey, initialSessionName = '' }:
           onSave={value => session.current?.updateSettings({ name: value })} />
         {state.role && <span className={`badge ${state.role}`}>{state.role === 'interviewer' ? "You're the interviewer" : "You're a candidate"}</span>}
         <a className="ghost" href="/">New session</a>
+        <a className="ghost" href={`/r/${room}/replay`} target="_blank" rel="noopener">Replay</a>
         <button className="ghost" onClick={() => copy(roomLink, 'Candidate link copied')}>
           {isInterviewer ? 'Invite candidate' : 'Copy room link'}
         </button>

@@ -87,14 +87,14 @@ Sanyam asked for the MVP live today, ahead of the original Week 3 deploy.
 ## Week 3 (Nov 18–24): history, replay, accounts, deploy
 
 **Status (2026-11-04):** started early.
-- **Done:** the Postgres op log, snapshots and crash recovery (tested); "Your rooms" per browser; Markdown problem upload; interviewer/candidate roles enforced on the server; named sessions; an example library; and reconnect without losing or doubling an edit (tested).
-- **Next:** the replay UI, then Google sign-in.
+- **Done:** the Postgres op log, snapshots and crash recovery (tested); "Your rooms" per browser; Markdown problem upload; interviewer/candidate roles enforced on the server; named sessions; an example library; reconnect without losing or doubling an edit (tested); and the replay page (tested).
+- **Next:** Google sign-in.
 
 **Ship**
 1. Postgres: an append-only `ops` table per room `(room_id, rev, client_id, op, created_at)`, plus a `snapshots` table holding the document every 200 ops.
 2. Crash recovery: on start, a room loads its latest snapshot and replays the ops after it. Tested by killing the server mid-session.
 3. Reconnect without losing edits. Each op carries a `(clientId, seq)` pair so the server can drop duplicates. A client that reconnects resends its unacked op, and the server catches it up. *Built without the `seq`: one connection per page makes the catch-up enough (DESIGN §15).*
-4. A replay UI: a scrubber over the op log, played at 1×, 4× or 16×, with run events shown on the timeline.
+4. A replay UI: a scrubber over the op log, played at 1×, 4× or 16×, with run events shown on the timeline. *Built (DESIGN §16), without run events: runs aren't logged yet.*
 5. Google sign-in, plus interviewer and candidate roles (for example, only the interviewer edits test cases).
 6. Move the server next to the runner on the VPS (Docker Compose, TLS), or keep it on Render, whichever the Week 2 runner deploy makes simpler. Then re-run the load test there.
 7. Recruit real mock-interview pairs, and log the sessions held and unique users.

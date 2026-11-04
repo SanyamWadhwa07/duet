@@ -146,7 +146,7 @@ Every run happens in its own Docker container. The flags and the attack each one
 - **Snapshots.** Every **200 ops** the server stores the full document text.
   - Recovery and replay load the latest snapshot and apply the ops after it, so they never apply more than 199.
   - 200 is a starting point. It trades replay time (each apply is linear in document size) against snapshot storage (one document copy per 200 ops). Week 3 measures recovery time against ops since the last snapshot, and the interval is set from that.
-- **Replay.** Replay applies the log from rev 0 with each op's original timestamp, scaled for 1×, 4× or 16× playback. (The replay UI is still to come; the log already has the timestamps.)
+- **Replay.** Replay applies the log from rev 0 with each op's original timestamp, scaled for 1×, 4× or 16× playback. *Built:* see §16.
 
 **As built.**
 - `packages/server/src/store.ts` holds four tables:
@@ -244,3 +244,36 @@ Resending blindly doubles the edit in case 2. Not resending loses it in case 1. 
 - The naive baseline has no catch-up. Its editor is read-only while disconnected, as before.
 
 **Tested** (METRICS §9): a 3,000-run property test with dropped connections; a browser test with a proxy that loses an ack, loses an op and cuts the network; mutation checks for all three; and a check of the lost-history fallback.
+
+## 16. Replay (Nov 5)
+
+**What it is.** `/r/<room>/replay` plays a saved session back from the op log. It shows the problem and the code as they were typed, a caret in the typist's colour where the code is changing, the typist's name, and the session's real clock. It is linked from the room ("Replay") and from "Your sessions".
+
+**The data.**
+- `GET /api/rooms/<id>/history` returns both documents' ops from revision 0, each with its author's name and `created_at`, straight from the `ops` table. Snapshots aren't used: replay needs every step, and the log keeps every op.
+- **A gap ends the history.** Ops lost while the database was down leave a gap, and nothing after a gap applies, so the history stops there.
+- **Cap:** 100,000 ops per document. A fast hour is a few thousand.
+- **Who can see it:** anyone with the room link. They can already join the room and read the text; the history adds who typed what and when, for the same people.
+
+**One timeline.** The code's and the problem's ops are merged by time. Each document keeps its own order exactly, so each is rebuilt by applying its ops in the order the server committed them.
+
+**Playing.**
+- **Speeds:** 1×, 4× and 16×.
+- **Pauses:** a pause longer than 2 s plays as 2 s, so a replay doesn't sit still while someone thinks. The clock label still shows real session time.
+- **Keys:** Space plays and pauses; Home, End and the arrow keys move, as in a video player.
+- **Opening state:** the page opens on the finished session, and Play starts from the beginning.
+
+**Moving through it.**
+- **Small steps forward** (up to 200 edits) are applied to the editor as edits. They use the same op-to-Monaco conversion as the live room (`opToEdits`), so the view doesn't jump.
+- **Bigger jumps, and any jump back,** rebuild the text with `apply` (from the start, when going back). At interview sizes this takes a few milliseconds.
+
+**Line endings (two bugs the checks caught before they shipped).**
+- Ops count a newline as one character. A new Monaco model on Windows uses `\r\n`, so the replay editor turned each typed `\n` into two characters and every later edit landed one place off per line. The replay editor is now pinned to `\n`, as the room's editors already were.
+- "Play from the start" then broke it again: `setValue('')` resets a model to the platform's line ending. The rebuild now replaces the text with an edit instead.
+- **The same risk in the live room.** A client that sent a `\r` would have it turned into `\n` by everyone else's editor, and their copies would drift from the server's offsets. The browser never sends one (0 such ops in every room the app made). The server now refuses any op containing `\r`, so the documents are `\n`-only by rule, not by luck.
+
+**Not done.**
+- Run events on the timeline: runs aren't logged; the room keeps only the last one.
+- Replay without a database: rooms kept only in memory have no timestamps, and the page says the session wasn't saved.
+
+**Tested** (METRICS §10): the e2e test replays a 3-tab random session both ways (rebuilt on open, and edit by edit at 16×) and compares with the server's final text; one mutation check.

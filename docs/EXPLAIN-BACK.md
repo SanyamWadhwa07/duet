@@ -215,3 +215,33 @@ Then its revision numbers mean different ops, and a catch-up would be wrong. The
 
 **7. How do you know the tests would catch a bug here?**
 I broke it on purpose three ways: applying our own committed op again, never resending, and letting the replaced connection's ops through. Each failed the property test, and the first two also failed the browser test.
+
+---
+
+## Replay (Nov 5)
+
+**1. Where does a replay come from?**
+The op log. Every committed op is already saved with who sent it and when, so `GET /api/rooms/<id>/history` reads both documents' ops from revision 0. The page applies them in order. Nothing extra is recorded for replay.
+
+*Code:* `store.ts` (`history`), `packages/web/src/Replay.tsx`.
+
+**2. Why not start from a snapshot?**
+Snapshots are for reloading a room fast. A replay needs every step from the beginning, and the log keeps every op. At interview sizes, rebuilding from revision 0 takes a few milliseconds.
+
+**3. There are two documents. How do they share one timeline?**
+Their ops are merged by time, and each document keeps its own order exactly. Applying each document's ops in its own order is exactly what the server did, so the text at every step is a text that really existed.
+
+**4. Why do long pauses get shorter?**
+A candidate thinking for two minutes would make the replay sit still for two minutes. Any pause over 2 s plays as 2 s, while the clock label keeps the real time, so you can still see how long they thought.
+
+**5. How does it move without jumping around?**
+Small steps forward are applied to the editor as edits, with the same op-to-Monaco code the live room uses, so the view stays put. A big jump, or any jump back, rebuilds the text from the log with `apply` and puts it in at once.
+
+**6. What went wrong while building it?**
+Line endings, twice. Ops count a newline as one character, but a new Monaco model on Windows uses `\r\n`, so every typed newline became two characters and later edits landed in the wrong place. I pinned the replay editor to `\n`. Then "Play from the start" broke it again, because `setValue('')` resets a model to the platform's line ending, so the rebuild now uses an edit. The e2e replay check caught both before they shipped.
+
+**7. Could that happen in the live room too?**
+Only if a client sent a `\r`: everyone else's editor would turn it into a plain newline and drift from the server's offsets. The browser never sends one, but the server now refuses any op with a `\r`, so documents are `\n`-only by rule.
+
+**8. How is it tested?**
+The e2e test has 3 tabs type at random for 10 s, then opens the replay. The opening text (rebuilt) and the played-back text (edit by edit, at 16×) must both equal the server's final text. Removing the `\n` pin makes it fail.

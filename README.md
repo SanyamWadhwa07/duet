@@ -1,6 +1,6 @@
 # Duet
 
-A live coding-interview room. 2–4 people open a room link and edit one file together in the browser. Code runs against test cases in a sandbox (Week 2), and sessions can be replayed keystroke by keystroke (Week 3).
+A live coding-interview room. 2–4 people open a room link and edit one file together in the browser. Code runs against test cases, and every session can be replayed keystroke by keystroke.
 
 The sync engine is my own operational transformation (OT) with a central server. No Yjs, ShareDB or Automerge. See [docs/DESIGN.md](docs/DESIGN.md) for every decision and [docs/METRICS.md](docs/METRICS.md) for every number, with how each was measured.
 
@@ -27,7 +27,9 @@ The sync engine is my own operational transformation (OT) with a central server.
 
 **Reconnect:** if the connection drops, keep typing. On the way back the page gets exactly what it missed, and every edit lands once: none lost, none doubled ([DESIGN §15](docs/DESIGN.md)).
 
-**Status:** the sync core, the interview room, saved rooms, roles and reconnect are done. Next are the replay UI and the server-side Docker runner (C++ and stronger isolation). The plan is in [PLAN.md](PLAN.md).
+**Replay:** "Replay" in a room (or under "Your sessions") plays the saved session back: the problem and the code as they were typed, who typed what, at 1×, 4× or 16×, with long pauses shortened ([DESIGN §16](docs/DESIGN.md)).
+
+**Status:** the sync core, the interview room, saved rooms, roles, reconnect and replay are done. Next are Google sign-in and the server-side Docker runner (C++ and stronger isolation). The plan is in [PLAN.md](PLAN.md).
 
 ## Layout
 
@@ -64,7 +66,7 @@ The front end deploys to Vercel (`vercel.json`) and the WebSocket server to Rend
 ```bash
 npm test                           # unit + randomized convergence property tests
 OT_SCALE=10 npm test               # 10x soak run of the property tests
-npm run e2e                        # exit test: browser tabs type concurrently, must end identical (needs server + web running; uses installed Edge)
+npm run e2e                        # exit test: browser tabs type concurrently, must end identical, and the replay must rebuild the same text (needs server + web running; uses installed Edge)
 npm run reconnect                  # browser test: lose an ack, lose an op, cut the network; every edit must land once
 npm run bench                      # bot load test (see the header of packages/bench/src/bots.ts for settings)
 npm run demo                       # record docs/demo.gif from the live site (uses installed Edge and ffmpeg)

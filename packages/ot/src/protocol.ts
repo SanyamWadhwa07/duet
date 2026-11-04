@@ -26,6 +26,10 @@ export type TestResult = { input: string; expected: string | null; output: strin
 export type RunReport = { by: string; at: number; language: Language; results: TestResult[] };
 /** An op a reconnecting client missed. `mine` marks its own in-flight op whose ack was lost. */
 export type CatchUp = { op: Op; mine: boolean };
+/** One committed op for replay: who typed it (display name) and when (ms since the epoch). */
+export type HistoryOp = { at: number; by: string; op: Op };
+/** A saved room's history (GET /api/rooms/:id/history): both documents' ops from revision 0, in order. */
+export type History = { name: string; title: string; language: Language; code: HistoryOp[]; problem: HistoryOp[] };
 
 export type ClientMsg =
   // user: this browser's id, for "Your rooms". key: the room's interviewer key, if this browser holds it.

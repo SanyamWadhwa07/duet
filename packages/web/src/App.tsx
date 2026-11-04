@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Landing } from './Landing';
+import { Replay } from './Replay';
 import { Room } from './Room';
 import { wakeServer } from './session';
 
 const roomFromPath = () => location.pathname.match(/^\/r\/([\w-]{1,64})$/)?.[1] ?? null;
+const replayFromPath = () => location.pathname.match(/^\/r\/([\w-]{1,64})\/replay$/)?.[1] ?? null;
 
 // The interviewer key for a room lives in this browser's localStorage. The browser that creates a room
 // makes one; an interviewer link (/r/<room>#host=<key>) hands it to a co-interviewer.
@@ -17,6 +19,12 @@ function takeKeyFromLink(room: string | null) {
 }
 
 export function App() {
+  const replay = replayFromPath();
+  return replay ? <Replay room={replay} /> : <Rooms />;
+}
+
+/** The front page, the join screen and the room. */
+function Rooms() {
   const [room, setRoom] = useState(() => { const r = roomFromPath(); takeKeyFromLink(r); return r; });
   const [name, setName] = useState(() => localStorage.getItem('duet:name') ?? '');
   const [entered, setEntered] = useState(false);
