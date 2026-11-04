@@ -1,0 +1,30 @@
+# Render Blueprint: New > Blueprint > pick this repo. Both services run the same image.
+# Render sets PORT; the server listens on it. Free instances sleep after ~15 min idle
+# and rooms are in memory, so a sleeping server forgets its rooms (persistence is Week 3).
+services:
+  - type: web
+    name: duet-server
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    region: singapore
+    plan: free
+    healthCheckPath: /health
+    buildFilter:
+      paths: [Dockerfile, package-lock.json, packages/ot/**, packages/server/**]
+    envVars:
+      - key: DUET_SYNC
+        value: ot
+
+  # The whole-file rebroadcast baseline, deployed only so it can be measured over a real network.
+  - type: web
+    name: duet-server-naive
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    region: singapore
+    plan: free
+    healthCheckPath: /health
+    buildFilter:
+      paths: [Dockerfile, package-lock.json, packages/ot/**, packages/server/**]
+    envVars:
+      - key: DUET_SYNC
+        value: naive
