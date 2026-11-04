@@ -32,6 +32,10 @@ If the ports are taken, run `PORT=4100 npm run server` and `DUET_SERVER=http://l
 
 For the naive baseline, run `DUET_SYNC=naive npm run server`. Every change then sends the whole file and the server relays it, as Code-Sync does. Type in two tabs at once and watch edits disappear.
 
+## Deploy
+
+The front end deploys to Vercel (`vercel.json`) and the WebSocket server to Render as a Docker web service (`render.yaml`, `Dockerfile`). Step-by-step instructions and free-tier caveats are in [docs/DEPLOY.md](docs/DEPLOY.md).
+
 ## Tests and measurements
 
 ```bash
