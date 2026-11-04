@@ -85,6 +85,9 @@ body:has(.paper) { background: var(--paper); }
 .people li { display: inline-flex; align-items: center; gap: 6px; }
 .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
 .dot.you { background: var(--mute); }
+.people .role { margin-left: 6px; font-size: 12px; color: var(--mute); }
+.test.read { grid-template-columns: 1fr 1fr auto; align-items: start; }
+.test.read .block { grid-template-columns: 1fr; gap: 2px; }
 .status { font-size: 13px; color: var(--mute); }
 .status.waking, .status.reconnecting { color: #F2C14E; }
 .status.full { color: var(--fail); }

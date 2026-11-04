@@ -41,11 +41,11 @@ const MAX_UPLOAD_BYTES = 100_000;
 const setText = (model: monaco.editor.ITextModel, text: string) =>
   model.pushEditOperations([], [{ range: model.getFullModelRange(), text }], () => null);
 
-export function Room({ room, name }: { room: string; name: string }) {
+export function Room({ room, name, hostKey }: { room: string; name: string; hostKey: string | null }) {
   const codeHost = useRef<HTMLDivElement>(null);
   const problemHost = useRef<HTMLDivElement>(null);
   const session = useRef<RoomSession | null>(null);
-  const [state, setState] = useState<RoomState>({ status: 'connecting', you: '', peers: [], settings: null, lastRun: null, notice: null });
+  const [state, setState] = useState<RoomState>({ status: 'connecting', you: '', role: null, peers: [], settings: null, lastRun: null, notice: null });
   const [empty, setEmpty] = useState({ code: true, problem: true });
   const [problemText, setProblemText] = useState('');
   const [preview, setPreview] = useState(false);
@@ -62,7 +62,7 @@ export function Room({ room, name }: { room: string; name: string }) {
       ...EDITOR, language: 'markdown', lineNumbers: 'off', wordWrap: 'on', folding: false,
       glyphMargin: false, lineDecorationsWidth: 18, renderLineHighlight: 'none',
     });
-    const s = new RoomSession(code, problem, room, name, patch => setState(prev => ({ ...prev, ...patch })));
+    const s = new RoomSession(code, problem, room, name, patch => setState(prev => ({ ...prev, ...patch })), hostKey);
     session.current = s;
     const track = () => {
       setEmpty({ code: s.code.model.getValueLength() === 0, problem: s.problem.model.getValueLength() === 0 });
@@ -73,15 +73,19 @@ export function Room({ room, name }: { room: string; name: string }) {
     document.fonts.ready.then(() => monaco.editor.remeasureFonts());
     if (import.meta.env.DEV) Object.assign(window, { duet: { editor: code, problem, session: s } }); // used by the e2e test
     return () => { listeners.forEach(l => l.dispose()); s.close(); code.dispose(); problem.dispose(); };
-  }, [room, name]);
+  }, [room, name, hostKey]);
 
   // Everyone's editor follows the room's language.
   useEffect(() => {
     if (settings && session.current) monaco.editor.setModelLanguage(session.current.code.model, settings.language === 'cpp' ? 'cpp' : settings.language);
   }, [settings?.language]);
 
-  // Joining a room that already has a problem shows it rendered; an empty one opens the editor.
-  useEffect(() => { if (state.status === 'connected') setPreview(session.current!.problem.model.getValueLength() > 0); }, [state.status]);
+  // The candidate always reads the problem rendered. The interviewer gets the rendered problem when there is
+  // one, and the editor when the room is new.
+  const isInterviewer = state.role === 'interviewer';
+  useEffect(() => {
+    if (state.status === 'connected') setPreview(!isInterviewer || session.current!.problem.model.getValueLength() > 0);
+  }, [state.status, isInterviewer]);
   const problemHtml = useMemo(() => (preview ? renderMarkdown(problemText) : ''), [preview, problemText]);
 
   // A new run (yours or someone else's) opens the output.
@@ -136,20 +140,30 @@ export function Room({ room, name }: { room: string; name: string }) {
     setToast(`Loaded ${file.name}. Ctrl+Z in the editor undoes it.`);
   };
 
-  const copyInvite = async () => {
-    await navigator.clipboard.writeText(location.href);
-    setToast('Invite link copied');
+  const copy = async (link: string, message: string) => {
+    await navigator.clipboard.writeText(link);
+    setToast(message);
   };
+  const roomLink = `${location.origin}/r/${room}`;
 
   const connected = state.status === 'connected';
   return (
     <div className="room">
       <header className="topbar">
         <a className="brand" href="/" aria-label="Duet home"><Mark /> Duet</a>
-        <button className="ghost" onClick={copyInvite}>Copy invite link</button>
+        <button className="ghost" onClick={() => copy(roomLink, 'Candidate link copied')}>
+          {isInterviewer ? 'Invite candidate' : 'Copy room link'}
+        </button>
+        {isInterviewer && hostKey && (
+          <button className="ghost" onClick={() => copy(`${roomLink}#host=${hostKey}`, 'Interviewer link copied. Share it only with co-interviewers.')}>
+            Invite interviewer
+          </button>
+        )}
         <ul className="people" aria-label="People in this room">
-          <li><span className="dot you" />{name} (you)</li>
-          {state.peers.map(p => <li key={p.id}><span className="dot" style={{ background: p.color }} />{p.name}</li>)}
+          <li><span className="dot you" />{name} (you){state.role && <span className="role">{state.role}</span>}</li>
+          {state.peers.map(p => (
+            <li key={p.id}><span className="dot" style={{ background: p.color }} />{p.name}<span className="role">{p.role}</span></li>
+          ))}
         </ul>
         <span className={`status ${state.status}`} role="status">{STATUS_TEXT[state.status]}</span>
         <div className="controls">
@@ -157,7 +171,7 @@ export function Room({ room, name }: { room: string; name: string }) {
             onChange={e => changeLanguage(e.target.value as Language)}>
             {LANGUAGES.map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
           </select>
-          <Timer startedAt={settings?.timerStartedAt ?? null} now={now} disabled={!connected}
+          <Timer startedAt={settings?.timerStartedAt ?? null} now={now} disabled={!connected} canControl={isInterviewer}
             onChange={timerStartedAt => session.current?.updateSettings({ timerStartedAt })} />
           <button className="run" onClick={run} disabled={!connected || !!running} title="Ctrl+Enter">
             {running ?? (settings?.tests.length ? `Run ${settings.tests.length} tests` : 'Run')}
@@ -171,18 +185,26 @@ export function Room({ room, name }: { room: string; name: string }) {
         <section className="pane problem-pane" aria-label="Problem">
           <div className="pane-head">
             <h2>Problem</h2>
-            <div className="pane-actions">
-              {!empty.problem && <button className="ghost" onClick={() => setPreview(p => !p)}>{preview ? 'Edit' : 'Preview'}</button>}
-              <button className="ghost" disabled={!connected} onClick={() => upload.current?.click()}>Upload .md</button>
-              <input ref={upload} type="file" accept=".md,.markdown,.txt,text/markdown,text/plain" hidden
-                onChange={e => { const f = e.target.files?.[0]; if (f) uploadProblem(f); e.target.value = ''; }} />
-              {empty.problem && connected && <button className="ghost" onClick={loadExample}>Load an example</button>}
-            </div>
+            {isInterviewer && (
+              <div className="pane-actions">
+                {!empty.problem && <button className="ghost" onClick={() => setPreview(p => !p)}>{preview ? 'Edit' : 'Preview'}</button>}
+                <button className="ghost" disabled={!connected} onClick={() => upload.current?.click()}>Upload .md</button>
+                <input ref={upload} type="file" accept=".md,.markdown,.txt,text/markdown,text/plain" hidden
+                  onChange={e => { const f = e.target.files?.[0]; if (f) uploadProblem(f); e.target.value = ''; }} />
+                {empty.problem && connected && <button className="ghost" onClick={loadExample}>Load an example</button>}
+              </div>
+            )}
           </div>
           <div className="editor-wrap">
             <div className="editor-host" ref={problemHost} style={{ visibility: preview && !empty.problem ? 'hidden' : 'visible' }} />
             {preview && !empty.problem && <article className="markdown" dangerouslySetInnerHTML={{ __html: problemHtml }} />}
-            {empty.problem && <p className="placeholder">Paste, write or upload (.md) the problem here. Everyone in the room can edit it.</p>}
+            {empty.problem && (
+              <p className="placeholder">
+                {isInterviewer || !connected
+                  ? 'Paste, write or upload (.md) the problem here. Only interviewers can edit it.'
+                  : 'The interviewer has not added the problem yet. It appears here as soon as they do.'}
+              </p>
+            )}
           </div>
         </section>
 
@@ -199,7 +221,7 @@ export function Room({ room, name }: { room: string; name: string }) {
             <button role="tab" aria-selected={tab === 'output'} onClick={() => setTab('output')}>Output</button>
           </div>
           {tab === 'tests'
-            ? <Tests tests={settings?.tests ?? []} lastRun={state.lastRun} disabled={!connected}
+            ? <Tests tests={settings?.tests ?? []} lastRun={state.lastRun} disabled={!connected} readOnly={!isInterviewer}
                 onChange={tests => session.current?.updateSettings({ tests })} />
             : <Output report={state.lastRun} running={running} now={now} />}
         </section>
@@ -209,24 +231,47 @@ export function Room({ room, name }: { room: string; name: string }) {
   );
 }
 
-function Timer({ startedAt, now, disabled, onChange }: { startedAt: number | null; now: number; disabled: boolean; onChange(v: number | null): void }) {
-  if (startedAt === null) return <button className="ghost" disabled={disabled} onClick={() => onChange(Date.now())}>Start timer</button>;
+function Timer({ startedAt, now, disabled, canControl, onChange }:
+  { startedAt: number | null; now: number; disabled: boolean; canControl: boolean; onChange(v: number | null): void }) {
+  if (startedAt === null) {
+    return canControl ? <button className="ghost" disabled={disabled} onClick={() => onChange(Date.now())}>Start timer</button> : null;
+  }
   const s = Math.max(0, Math.floor((now - startedAt) / 1000));
   const clock = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
   return (
     <span className="timer">
       <span aria-label="Interview time">{clock}</span>
-      <button className="ghost" disabled={disabled} onClick={() => onChange(null)}>Reset</button>
+      {canControl && <button className="ghost" disabled={disabled} onClick={() => onChange(null)}>Reset</button>}
     </span>
   );
 }
 
-function Tests({ tests, lastRun, disabled, onChange }: { tests: TestCase[]; lastRun: RunReport | null; disabled: boolean; onChange(t: TestCase[]): void }) {
+function Tests({ tests, lastRun, disabled, readOnly, onChange }:
+  { tests: TestCase[]; lastRun: RunReport | null; disabled: boolean; readOnly: boolean; onChange(t: TestCase[]): void }) {
   // Local draft while typing; saved to the room when a field loses focus. Remote changes replace it.
   const [draft, setDraft] = useState(tests);
   useEffect(() => setDraft(tests), [tests]);
   const edit = (i: number, field: keyof TestCase, value: string) => setDraft(d => d.map((t, k) => (k === i ? { ...t, [field]: value } : t)));
   const resultFor = (t: TestCase) => lastRun?.results.find(r => r.input === t.input && r.expected === t.expected);
+
+  // The candidate sees the tests the interviewer wrote, and how each did on the last run.
+  if (readOnly) {
+    return (
+      <div className="tests">
+        {tests.length === 0 && <p className="empty">No tests yet. The interviewer adds them; Run still runs your code with no input.</p>}
+        {tests.map((t, i) => {
+          const r = resultFor(t);
+          return (
+            <div className="test read" key={i}>
+              <Block label="Input" text={t.input || '(empty)'} />
+              <Block label="Expected" text={t.expected || '(empty)'} />
+              <div className="test-side">{r && <span className={`pill ${r.status}`}>{RESULT_TEXT[r.status]}</span>}</div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
 
   return (
     <div className="tests">

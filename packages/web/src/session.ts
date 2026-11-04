@@ -2,7 +2,7 @@
 // in sync with OT; presence (who is here, where their cursor is), settings and run reports ride along.
 import {
   OpBuilder, OTClient, transformIndex,
-  type ClientMsg, type Op, type Peer, type RoomSettings, type RunReport, type Selection, type ServerMsg, type SyncMode,
+  type ClientMsg, type Op, type Peer, type Role, type RoomSettings, type RunReport, type Selection, type ServerMsg, type SyncMode,
 } from '@duet/ot';
 import { monaco } from './monaco';
 
@@ -10,6 +10,7 @@ export type Status = 'connecting' | 'waking' | 'connected' | 'reconnecting' | 'f
 export type RoomState = {
   status: Status;
   you: string;
+  role: Role | null;
   peers: Peer[];
   settings: RoomSettings | null;
   lastRun: RunReport | null;
@@ -124,6 +125,7 @@ export class RoomSession {
   private selListener: monaco.IDisposable;
   private selTimer: ReturnType<typeof setTimeout> | undefined;
   private lastSel = '';
+  private role: Role | null = null;
 
   constructor(
     private editor: monaco.editor.IStandaloneCodeEditor,
@@ -131,6 +133,8 @@ export class RoomSession {
     private room: string,
     private name: string,
     private on: Listener,
+    /** This browser's interviewer key for the room, if it has one. */
+    private hostKey: string | null = null,
   ) {
     this.code = new DocBinding(editor.getModel()!, (rev, op) => this.send({ t: 'op', rev, op }));
     this.problem = new DocBinding(problemEditor.getModel()!, (rev, op) => this.send({ t: 'op', doc: 'problem', rev, op }));
@@ -166,7 +170,7 @@ export class RoomSession {
     const ws = new WebSocket(WS_URL);
     this.ws = ws;
     this.wakeTimer = setTimeout(() => this.on({ status: 'waking' }), 3000);
-    ws.onopen = () => this.send({ t: 'join', room: this.room, name: this.name, user: browserId() });
+    ws.onopen = () => this.send({ t: 'join', room: this.room, name: this.name, user: browserId(), key: this.hostKey ?? undefined });
     ws.onmessage = e => this.receive(JSON.parse(e.data));
     ws.onclose = () => {
       clearTimeout(this.wakeTimer);
@@ -194,9 +198,10 @@ export class RoomSession {
         this.peers = new Map(msg.peers.map(p => [p.id, p]));
         this.cursors.clear();
         this.renderCursors();
+        this.role = msg.role;
         this.setEditable(true);
         this.on({
-          status: 'connected', you: msg.you, peers: [...this.peers.values()], settings: msg.settings, lastRun: msg.lastRun,
+          status: 'connected', you: msg.you, role: msg.role, peers: [...this.peers.values()], settings: msg.settings, lastRun: msg.lastRun,
           notice: lost ? 'Reconnected. Your last few keystrokes before the connection dropped were not saved.' : null,
         });
         return;
@@ -224,9 +229,10 @@ export class RoomSession {
     }
   }
 
+  /** Both people write code; only the interviewer edits the problem (the server enforces it too). */
   private setEditable(editable: boolean) {
     this.editor.updateOptions({ readOnly: !editable });
-    this.problemEditor.updateOptions({ readOnly: !editable });
+    this.problemEditor.updateOptions({ readOnly: !(editable && this.role === 'interviewer') });
   }
 
   // --- presence (code editor only) ---------------------------------------------------------------
