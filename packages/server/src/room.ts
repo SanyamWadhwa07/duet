@@ -134,6 +134,9 @@ export class Room {
         if ((id === 'code' && this.mode !== 'ot') || !isOp(msg.op)) throw new Error('bad op');
         if (id === 'problem' && member.role !== 'interviewer') throw new Error('only the interviewer can edit the problem');
         if (targetLength(msg.op) > MAX_DOC_CHARS) throw new Error('document too large');
+        // Documents use \n line endings. Editors turn a \r\n they are given into \n, which would shift every
+        // later offset in that copy (a peer's, or the replay's), so a \r is refused here.
+        if (msg.op.some(c => typeof c === 'string' && c.includes('\r'))) throw new Error('bad op: use \\n line endings');
         const doc = this.docs[id];
         const committed = doc.receive(msg.rev, msg.op, member.client);
         // Saved before the ack: an op the sender saw acknowledged survives a crash.
