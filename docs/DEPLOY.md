@@ -33,7 +33,7 @@ The code runner (Week 2) needs a VM that can run Docker containers. Render and V
    4. Under Environment Variables, add `VITE_WS_URL` = `wss://<duet-server host>/ws`.
    5. Click **Deploy**.
 
-From then on, every push to `main` redeploys both hosts. Render only rebuilds when server code changes (`buildFilter` in `render.yaml`).
+From then on, every push to `main` redeploys Vercel. **Render did not redeploy on push (2026-11-04)**, even with Auto-Deploy set to "On Commit". The Blueprint was created through Render's repo-URL link while its GitHub repo list was failing, so the GitHub push hook may not be wired. Until that's fixed (reconnect the repo under the service's Settings), redeploy server changes with **Manual Deploy → Deploy latest commit** on both services. Render only rebuilds when server code changes (`buildFilter` in `render.yaml`).
 
 ## Things to know about the free tiers
 

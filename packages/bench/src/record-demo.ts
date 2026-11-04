@@ -11,7 +11,7 @@ import { chromium, type Page } from 'playwright-core';
 const WEB = process.env.WEB_URL ?? 'https://duet-six-rose.vercel.app';
 const SERVER = process.env.SERVER_URL ?? 'https://duet-server.onrender.com';
 const OUT = process.env.OUT ?? '../../docs/demo.gif';
-const size = { width: 640, height: 400 };
+const size = { width: 960, height: 600 }; // wide enough for the room's two-column layout
 
 await fetch(`${SERVER}/health`); // wake a sleeping free instance before recording
 const frameDir = mkdtempSync(join(tmpdir(), 'duet-demo-'));
@@ -33,6 +33,11 @@ const enterRoom = async (page: Page, name: string, url: string) => {
 await enterRoom(asha.page, 'Asha', WEB);
 const roomUrl = asha.page.url();
 await enterRoom(ravi.page, 'Ravi', roomUrl);
+// The demo code is JavaScript: switch the room's language, then clear the starter comment it inserts.
+await asha.page.selectOption('select[aria-label="Language"]', 'javascript');
+await asha.page.click('.code-pane .view-lines');
+await asha.page.keyboard.press('Control+A');
+await asha.page.keyboard.press('Delete');
 console.log(`room ${roomUrl}`);
 
 // Screenshot both windows together, as fast as they come (about 10 per second), until stopped.
@@ -99,7 +104,7 @@ execFileSync('ffmpeg', [
   '-framerate', fps, '-i', join(frameDir, 'a%04d.png'),
   '-framerate', fps, '-i', join(frameDir, 'r%04d.png'),
   '-filter_complex',
-  '[0:v][1:v]hstack=inputs=2,fps=10,split[s0][s1];[s0]palettegen=max_colors=96[p];[s1][p]paletteuse=dither=bayer',
+  '[0:v][1:v]hstack=inputs=2,scale=1440:-1:flags=lanczos,fps=10,split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=bayer',
   OUT,
 ]);
 console.log(`wrote ${OUT} (${frames} frames at ${fps} fps)`);
