@@ -22,7 +22,7 @@ for (let i = 0; i < TABS; i++) {
   await page.goto(`${WEB}/r/${room}`);
   await page.fill('input', `tab${i}`);
   await page.press('input', 'Enter');
-  await page.waitForFunction(() => (window as any).duet?.session?.client, null, { timeout: 30_000 });
+  await page.waitForFunction(() => (window as any).duet?.session?.code?.client, null, { timeout: 30_000 });
   pages.push(page);
 }
 console.log(`room ${room}: ${TABS} tabs joined, typing for ${SECONDS}s`);

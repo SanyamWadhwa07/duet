@@ -28,7 +28,7 @@ const enterRoom = async (page: Page, name: string, url: string) => {
   await page.fill('input', name);
   await page.press('input', 'Enter');
   await page.waitForSelector('text=connected');
-  await page.click('.monaco-editor .view-lines');
+  await page.click('.code-pane .view-lines');
 };
 await enterRoom(asha.page, 'Asha', WEB);
 const roomUrl = asha.page.url();
@@ -55,7 +55,7 @@ const type = async (page: Page, lines: string[]) => {
   }
 };
 // Visible text of an editor, line by line (Monaco positions its line elements absolutely).
-const text = (page: Page) => page.evaluate(() => Array.from(document.querySelectorAll<HTMLElement>('.view-lines .view-line'))
+const text = (page: Page) => page.evaluate(() => Array.from(document.querySelectorAll<HTMLElement>('.code-pane .view-lines .view-line'))
   .sort((a, b) => parseFloat(a.style.top) - parseFloat(b.style.top))
   .map(l => l.innerText.replace(/ /g, ' ').trimEnd()).join('\n'));
 
@@ -71,7 +71,7 @@ await Promise.all([
     'seen.set(nums[i], i);',
   ]),
   (async () => {
-    await ravi.page.waitForFunction(() => document.querySelector('.view-lines')?.textContent?.includes('Map()'));
+    await ravi.page.waitForFunction(() => document.querySelector('.code-pane .view-lines')?.textContent?.includes('Map()'));
     await ravi.page.keyboard.press('Control+End');
     await ravi.page.keyboard.press('Enter');
     await type(ravi.page, ['', 'console.log(twoSum([2, 7, 11, 15], 9)); // [0, 1]']);
