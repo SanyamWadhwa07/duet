@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Mark } from './Mark';
+import { recentRooms, type RecentRoom } from './session';
 
 // The headline is typed by two carets taking turns, the way two people share a Duet room.
 const LINES: [string, 'amber' | 'azure'][] = [['Two people, one editor,', 'amber'], [' every keystroke kept.', 'azure']];
@@ -30,6 +31,34 @@ function TypedHeadline() {
         {parts[0]}{parts[1] && <><br />{parts[1].trimStart()}</>}<span className={`caret ${caret}`} />
       </span>
     </h1>
+  );
+}
+
+const ago = (iso: string) => {
+  const minutes = Math.round((Date.now() - Date.parse(iso)) / 60_000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes} min ago`;
+  if (minutes < 48 * 60) return `${Math.round(minutes / 60)} h ago`;
+  return `${Math.round(minutes / 1440)} days ago`;
+};
+
+/** Rooms this browser has been in, so a mock interview can be picked up again. Hidden when there are none. */
+function YourRooms() {
+  const [rooms, setRooms] = useState<RecentRoom[]>([]);
+  useEffect(() => { recentRooms().then(setRooms, () => {}); }, []);
+  if (!rooms.length) return null;
+  return (
+    <section className="your-rooms" aria-label="Your rooms">
+      <h2>Your rooms</h2>
+      <ul>
+        {rooms.map(r => (
+          <li key={r.room}>
+            <a href={`/r/${r.room}`}>{r.title || 'Untitled room'}</a>
+            <span>Room {r.room}, opened {ago(r.lastSeen)}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -66,6 +95,7 @@ export function Landing({ room, name, setName, onEnter }: Props) {
       <p className="lede">A free room for mock coding interviews. Share one link, write and run code together, and check it against test cases. No sign-up.</p>
       {form}
       <p className="hint">Joining someone else's room? Open the link they sent you.</p>
+      <YourRooms />
 
       <ol className="steps">
         <li><strong>Start a room and send the link.</strong> Up to four people can join.</li>

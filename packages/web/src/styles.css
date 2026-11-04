@@ -58,6 +58,13 @@ body:has(.paper) { background: var(--paper); }
 .start button:hover { background: #33363E; }
 .hint { color: var(--ink-mute); font-size: 14px; margin-top: 12px; }
 
+.your-rooms { margin-top: 40px; max-width: 520px; }
+.your-rooms h2 { font-family: var(--display); font-size: 20px; margin: 0 0 8px; }
+.your-rooms ul { list-style: none; margin: 0; padding: 0; }
+.your-rooms li { display: flex; flex-direction: column; padding: 10px 0; border-bottom: 1px solid #DDE1E6; }
+.your-rooms a { font-weight: 600; text-decoration: none; }
+.your-rooms a:hover { text-decoration: underline; }
+.your-rooms span { font-size: 13px; color: var(--ink-mute); }
 .steps { list-style: none; counter-reset: step; padding: 0; margin-top: 88px; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 32px; }
 .steps li { counter-increment: step; color: var(--ink-mute); border-top: 1.5px solid var(--ink); padding-top: 14px; }
 .steps li::before { content: counter(step); display: block; font-family: var(--display); font-weight: 700; font-size: 28px; color: var(--ink); margin-bottom: 6px; }

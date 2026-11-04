@@ -21,9 +21,28 @@ type Listener = (patch: Partial<RoomState>) => void;
 // so the build is given the server's address. In development Vite proxies /ws on the same origin.
 const WS_URL: string = import.meta.env.VITE_WS_URL || `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
 
+const serverHttp = (path: string) => WS_URL.replace(/^ws/, 'http').replace(/\/ws$/, path);
+
 /** Starts waking a sleeping server (free hosting tiers) while the visitor is still typing their name. */
 export function wakeServer() {
-  fetch(WS_URL.replace(/^ws/, 'http').replace(/\/ws$/, '/health'), { mode: 'no-cors' }).catch(() => {});
+  fetch(serverHttp('/health'), { mode: 'no-cors' }).catch(() => {});
+}
+
+/** A random id for this browser, kept in localStorage, so the server can list "Your rooms" without an account. */
+export function browserId() {
+  let id = localStorage.getItem('duet:user');
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem('duet:user', id);
+  }
+  return id;
+}
+
+export type RecentRoom = { room: string; title: string; lastSeen: string };
+/** The rooms this browser has been in, newest first. Empty if the server keeps no history. */
+export async function recentRooms(): Promise<RecentRoom[]> {
+  const res = await fetch(serverHttp(`/api/recent?user=${encodeURIComponent(browserId())}`));
+  return res.ok ? res.json() : [];
 }
 
 /** Keeps one Monaco model in sync with one server document. */
@@ -147,7 +166,7 @@ export class RoomSession {
     const ws = new WebSocket(WS_URL);
     this.ws = ws;
     this.wakeTimer = setTimeout(() => this.on({ status: 'waking' }), 3000);
-    ws.onopen = () => this.send({ t: 'join', room: this.room, name: this.name });
+    ws.onopen = () => this.send({ t: 'join', room: this.room, name: this.name, user: browserId() });
     ws.onmessage = e => this.receive(JSON.parse(e.data));
     ws.onclose = () => {
       clearTimeout(this.wakeTimer);
