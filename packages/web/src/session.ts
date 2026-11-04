@@ -5,6 +5,10 @@ import { monaco } from './monaco';
 
 type Listeners = { peers(peers: Peer[]): void; status(status: string): void };
 
+// In production the front end (Vercel) and the WebSocket server (Render) are on different hosts,
+// so the build is given the server's address. In development Vite proxies /ws on the same origin.
+const WS_URL: string = import.meta.env.VITE_WS_URL || `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
+
 export class RoomSession {
   mode: SyncMode = 'ot';
   client: OTClient | null = null;
@@ -24,7 +28,7 @@ export class RoomSession {
     this.decorations = editor.createDecorationsCollection();
     editor.updateOptions({ readOnly: true }); // until we have the server's copy
 
-    this.ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
+    this.ws = new WebSocket(WS_URL);
     this.ws.onopen = () => this.send({ t: 'join', room, name });
     this.ws.onmessage = e => this.receive(JSON.parse(e.data));
     this.ws.onclose = () => { editor.updateOptions({ readOnly: true }); on.status('disconnected (reload to rejoin)'); };
