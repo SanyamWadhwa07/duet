@@ -88,7 +88,7 @@ Joins and leaves are also presence messages. Each peer gets a colour from a fixe
 
 `DUET_SYNC=naive` switches the server and clients to the approach in Code-Sync (`server/src/server.ts`, handler `FILE_UPDATED`, checked at commit `6740054`):
 - every change sends the whole file;
-- the server relays it to everyone else in the room;
+- the server relays it to everyone else in the room (Duet's naive mode also keeps the latest file, so a late joiner gets it);
 - each receiver replaces its text.
 
 There is no ordering and no merging. It exists only to measure against: bytes per keystroke, and how many concurrent keystrokes are lost when two whole-file writes cross on the wire. It works in the browser too, so the lost edits can be shown live.

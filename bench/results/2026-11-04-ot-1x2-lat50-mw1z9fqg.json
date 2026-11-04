@@ -1,0 +1,33 @@
+{
+  "mode": "ot",
+  "rooms": 1,
+  "botsPerRoom": 2,
+  "bots": 2,
+  "seconds": 30,
+  "rateMs": 150,
+  "latencyMs": 50,
+  "starterChars": 2000,
+  "avgFinalChars": 2372,
+  "keystrokes": 372,
+  "roundTripMs": {
+    "samples": 371,
+    "p50": 122.05,
+    "p95": 123.84,
+    "p99": 124.77,
+    "max": 125.71
+  },
+  "wireBytes": 29947,
+  "bytesPerKeystroke": 80.5,
+  "lostKeystrokes": 0,
+  "lostPercent": 0,
+  "divergedRooms": 0,
+  "botEventLoopLagP99Ms": 16.45,
+  "machine": {
+    "cpu": "13th Gen Intel(R) Core(TM) i5-13500H",
+    "cores": 16,
+    "memGB": 16,
+    "node": "v22.17.1",
+    "os": "win32"
+  },
+  "date": "2026-11-04T10:32:49.610Z"
+}

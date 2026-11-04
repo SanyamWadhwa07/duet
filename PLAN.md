@@ -14,6 +14,8 @@ Start date: 2026-11-04. Every number on the resume comes from `docs/METRICS.md`.
 
 ## Week 1 (Nov 4–10): sync core
 
+**Status (2026-11-04): done.** The exit test passes and the numbers are in `docs/METRICS.md` §1–4.
+
 **Ship**
 1. `packages/ot`: the operation type (retain / insert / delete), with `apply`, `compose` and `transform`; the client state machine (one op in flight, a buffer behind it); and the server document (orders ops, transforms them against history, acks the sender).
 2. Randomized property tests, all seeded so any failure can be replayed:
