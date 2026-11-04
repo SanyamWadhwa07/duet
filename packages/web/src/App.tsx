@@ -16,8 +16,9 @@ export function App() {
   const enter = (e: React.FormEvent) => {
     e.preventDefault();
     localStorage.setItem('duet:name', name);
-    if (room) setEntered(true);
-    else location.href = `/r/${Math.random().toString(36).slice(2, 10)}`;
+    // Creating a room goes straight in: change the URL without reloading, so the name isn't asked twice.
+    if (!room) history.pushState(null, '', `/r/${Math.random().toString(36).slice(2, 10)}`);
+    setEntered(true);
   };
 
   return (
