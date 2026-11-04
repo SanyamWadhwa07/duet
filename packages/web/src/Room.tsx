@@ -5,7 +5,7 @@ import type { Language, RunReport, TestCase, TestResult } from '@duet/ot';
 import { monaco } from './monaco';
 import { RoomSession, type RoomState } from './session';
 import { runTests } from './runner';
-import { EXAMPLE, isStarter, STARTERS } from './example';
+import { EXAMPLES, isStarter, STARTERS } from './example';
 import { Mark } from './Mark';
 
 const LANGUAGES: { id: Language; label: string }[] = [
@@ -125,12 +125,16 @@ export function Room({ room, name, hostKey }: { room: string; name: string; host
     if (isStarter(s.code.model.getValue())) setText(s.code.model, STARTERS[language]);
   };
 
-  const loadExample = () => {
+  /** Puts an example's problem and tests in the room, and its starter code if the code is still untouched. */
+  const loadExample = (id: string) => {
+    const example = EXAMPLES.find(e => e.id === id);
     const s = session.current!;
-    if (s.problem.model.getValueLength() === 0) setText(s.problem.model, EXAMPLE.problem);
+    if (!example || !settings) return;
+    setText(s.problem.model, example.problem);
     setPreview(true);
-    s.updateSettings({ tests: EXAMPLE.tests });
-    if (settings && isStarter(s.code.model.getValue())) setText(s.code.model, EXAMPLE.starters[settings.language]);
+    s.updateSettings({ tests: example.tests });
+    if (isStarter(s.code.model.getValue())) setText(s.code.model, example.starters[settings.language]);
+    setToast(`Loaded "${example.title}". Ctrl+Z in the problem editor undoes the problem.`);
   };
 
   const uploadProblem = async (file: File) => {
@@ -192,7 +196,11 @@ export function Room({ room, name, hostKey }: { room: string; name: string; host
                 <button className="ghost" disabled={!connected} onClick={() => upload.current?.click()}>Upload .md</button>
                 <input ref={upload} type="file" accept=".md,.markdown,.txt,text/markdown,text/plain" hidden
                   onChange={e => { const f = e.target.files?.[0]; if (f) uploadProblem(f); e.target.value = ''; }} />
-                {empty.problem && connected && <button className="ghost" onClick={loadExample}>Load an example</button>}
+                <select className="ghost" aria-label="Load an example problem" value="" disabled={!connected}
+                  onChange={e => loadExample(e.target.value)}>
+                  <option value="" disabled>{empty.problem ? 'Load an example' : 'Replace with an example'}</option>
+                  {EXAMPLES.map(e => <option key={e.id} value={e.id}>{e.title}</option>)}
+                </select>
               </div>
             )}
           </div>
