@@ -38,6 +38,28 @@ Start date: 2026-11-04. Every number on the resume comes from `docs/METRICS.md`.
 
 ---
 
+## Deploy the MVP (Nov 4, re-scoped)
+
+Sanyam asked for the MVP live today, ahead of the original Week 3 deploy.
+
+**What ships:** the Week 1 sync engine, rooms, presence, the Monaco UI, the naive-baseline flag and its measurements.
+
+**Where:**
+- the front end on Vercel;
+- the WebSocket server on Render (Docker, free tier, Singapore);
+- a second Render service in naive mode, so the baseline can be measured over a real network.
+
+**Preparation:**
+- server: `/health`, a heartbeat that drops dead sockets, empty-room eviction, and a room cap;
+- front end: `VITE_WS_URL`, and a wake-up ping for sleeping free instances;
+- config: Dockerfile, `render.yaml`, `vercel.json`, `.env.example` files and CI.
+
+**Exit test:** two devices edit a room on the public URL and stay identical. The bots measure p95 round-trip, bytes per keystroke and lost keystrokes against the deployed OT and naive servers over the real network.
+
+**Not today:** the runner needs a VM with Docker, so it gets its own deploy in Week 2. Postgres and replay stay in Week 3.
+
+---
+
 ## Week 2 (Nov 11–17): sandboxed runner
 
 **Ship**
@@ -70,7 +92,7 @@ Start date: 2026-11-04. Every number on the resume comes from `docs/METRICS.md`.
 3. Reconnect without losing edits. Each op carries a `(clientId, seq)` pair so the server can drop duplicates. A client that reconnects resends its unacked op, and the server catches it up.
 4. A replay UI: a scrubber over the op log, played at 1×, 4× or 16×, with run events shown on the timeline.
 5. Google sign-in, plus interviewer and candidate roles (for example, only the interviewer edits test cases).
-6. Deploy to a small VPS with Docker Compose and TLS, then re-run the load test there.
+6. Move the server next to the runner on the VPS (Docker Compose, TLS), or keep it on Render, whichever the Week 2 runner deploy makes simpler. Then re-run the load test there.
 7. Recruit real mock-interview pairs, and log the sessions held and unique users.
 
 **Exit test**

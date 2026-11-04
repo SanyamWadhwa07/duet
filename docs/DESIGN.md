@@ -147,3 +147,20 @@ Every run happens in its own Docker container. The flags and the attack each one
   - Recovery and replay load the latest snapshot and apply the ops after it, so they never apply more than 199.
   - 200 is a starting point. It trades replay time (each apply is linear in document size) against snapshot storage (one document copy per 200 ops). Week 3 measures recovery time against ops since the last snapshot, and the interval is set from that.
 - **Replay.** Replay applies the log from rev 0 with each op's original timestamp, scaled for 1×, 4× or 16× playback.
+
+## 12. Hosting
+
+| Piece | Where | Why there |
+|---|---|---|
+| Front end | Vercel | Static files on a CDN. The build gets the server address from `VITE_WS_URL`. |
+| WebSocket server | Render web service (Docker, Singapore) | Needs one long-lived process holding open sockets and in-memory rooms. Vercel functions are short-lived and can't hold a WebSocket. Singapore is Render's closest region to India. |
+| Code runner (Week 2) | A VM that can run Docker | The runner starts a container per run. Render and Vercel don't let a service start containers, so it needs its own machine. |
+
+**Liveness.**
+- `/health` lets Render know the server is up.
+- The 30 s ping/pong heartbeat drops sockets that died without closing, so a vanished laptop doesn't hold one of the room's 4 seats.
+- The pings also keep proxies from closing idle sockets.
+
+**Memory.** Until the Week 3 op log, everything lives in memory. A room nobody has been in for 30 minutes is dropped, and live rooms are capped at 1,000.
+
+**Free-tier cost.** The service sleeps after ~15 idle minutes, and a sleep or redeploy forgets every room. The landing page pings `/health` on load so the server is already starting while the visitor types a name. Postgres (§11) removes the forgetting.
