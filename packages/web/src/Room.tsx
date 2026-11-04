@@ -151,6 +151,7 @@ export function Room({ room, name, hostKey }: { room: string; name: string; host
     <div className="room">
       <header className="topbar">
         <a className="brand" href="/" aria-label="Duet home"><Mark /> Duet</a>
+        {state.role && <span className={`badge ${state.role}`}>{state.role === 'interviewer' ? "You're the interviewer" : "You're a candidate"}</span>}
         <button className="ghost" onClick={() => copy(roomLink, 'Candidate link copied')}>
           {isInterviewer ? 'Invite candidate' : 'Copy room link'}
         </button>

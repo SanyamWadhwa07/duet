@@ -62,15 +62,28 @@ function YourRooms() {
   );
 }
 
-type Props = { room: string | null; name: string; setName(n: string): void; onEnter(e: React.FormEvent): void };
+type Props = {
+  room: string | null;
+  /** True when this browser holds the room's interviewer key (it created the room, or got an interviewer link). */
+  isHost: boolean;
+  name: string;
+  setName(n: string): void;
+  onEnter(e: React.FormEvent, asCandidate?: boolean): void;
+};
 
 /** The front page, and the join screen when someone opens a room link. */
-export function Landing({ room, name, setName, onEnter }: Props) {
+export function Landing({ room, isHost, name, setName, onEnter }: Props) {
   const form = (
     <form className="start" onSubmit={onEnter}>
       <label className="sr-only" htmlFor="name">Your name</label>
       <input id="name" autoFocus required maxLength={32} placeholder="Your name" value={name} onChange={e => setName(e.target.value)} />
-      <button>{room ? 'Join the room' : 'Start a room'}</button>
+      <button>{!room ? 'Start a room' : isHost ? 'Join as interviewer' : 'Join the room'}</button>
+      {isHost && (
+        <button type="button" className="secondary"
+          onClick={e => { const f = e.currentTarget.form!; if (f.reportValidity()) onEnter(e, true); }}>
+          Join as candidate
+        </button>
+      )}
     </form>
   );
 
@@ -78,8 +91,12 @@ export function Landing({ room, name, setName, onEnter }: Props) {
     return (
       <main className="paper join">
         <a className="brand" href="/"><Mark /> Duet</a>
-        <h1 className="join-title">You're invited to a coding room.</h1>
-        <p className="lede">Enter your name so the others know who's typing.</p>
+        <h1 className="join-title">{isHost ? 'Rejoin your room.' : "You're invited to a coding room."}</h1>
+        <p className="lede">
+          {isHost
+            ? "This browser created the room, so it joins as the interviewer. To see exactly what a candidate sees, join as a candidate instead."
+            : "Enter your name so the others know who's typing."}
+        </p>
         {form}
       </main>
     );

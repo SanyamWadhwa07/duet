@@ -86,6 +86,11 @@ body:has(.paper) { background: var(--paper); }
 .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
 .dot.you { background: var(--mute); }
 .people .role { margin-left: 6px; font-size: 12px; color: var(--mute); }
+.badge { font-size: 13px; font-weight: 600; padding: 3px 10px; border-radius: 999px; }
+.badge.interviewer { background: #3A3220; color: #F2C14E; }
+.badge.candidate { background: #1D3141; color: #A5D8FF; }
+.start .secondary { background: transparent; color: var(--ink); border: 1.5px solid #C9CDD4; }
+.start .secondary:hover { background: #ECEEF1; }
 .test.read { grid-template-columns: 1fr 1fr auto; align-items: start; }
 .test.read .block { grid-template-columns: 1fr; gap: 2px; }
 .status { font-size: 13px; color: var(--mute); }
