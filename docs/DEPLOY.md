@@ -35,6 +35,17 @@ The code runner (Week 2) needs a VM that can run Docker containers. Render and V
 
 From then on, every push to `main` redeploys Vercel. **Render did not redeploy on push (2026-11-04)**, even with Auto-Deploy set to "On Commit". The Blueprint was created through Render's repo-URL link while its GitHub repo list was failing, so the GitHub push hook may not be wired. Until that's fixed (reconnect the repo under the service's Settings), redeploy server changes with **Manual Deploy → Deploy latest commit** on both services. Render only rebuilds when server code changes (`buildFilter` in `render.yaml`).
 
+## Saved rooms: the database (one-time, Sanyam)
+
+Rooms are saved to Postgres when the server has `DATABASE_URL`. A free Neon database is enough: it doesn't expire and it scales to zero when idle.
+
+1. Sign in at neon.tech with GitHub, create a project, and pick the Singapore region (next to the Render server).
+2. Copy the connection string (`postgresql://…?sslmode=require`).
+3. In Render, open **duet-server → Environment**, add `DATABASE_URL` with that value, and save. Render redeploys.
+4. `https://duet-server.onrender.com/health` should now show `"saved": true`.
+
+The server creates its tables on start. Only `duet-server` needs this; the naive baseline stays in memory.
+
 ## Things to know about the free tiers
 
 - **Render free instances sleep after ~15 minutes without traffic.** The next visitor waits about a minute while it starts.

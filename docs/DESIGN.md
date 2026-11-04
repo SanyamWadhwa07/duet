@@ -119,7 +119,7 @@ The counts are in `METRICS.md`.
 
 - **Undo is local and not transform-aware.** Monaco's undo stack isn't transformed against remote edits, so undo after a remote edit can undo something slightly different from what you expect. Whatever undo does is still sent as a normal op, so peers never diverge.
 - **Reconnect drops unacked edits.** A dropped connection rejoins with fresh state. Fixed in Week 3 with `(clientId, seq)` dedup (section 11).
-- **No persistence.** Rooms live in memory until the server restarts (Week 3).
+- **No persistence.** Rooms live in memory until the server restarts. *Fixed:* see §11.
 
 ## 10. Sandbox limits (*planned*, Week 2)
 
@@ -140,13 +140,26 @@ Every run happens in its own Docker container. The flags and the attack each one
 
 **Why Docker, not isolate or gVisor.** Docker runs on a dev laptop and a cheap VPS, and its limits map one-to-one onto the table above. `isolate` (used by IOI) is stricter, but it needs cgroup setup on the host. That's the upgrade path if the threat model grows.
 
-## 11. Op log and snapshots (*planned*, Week 3)
+## 11. Op log and snapshots (built Nov 4)
 
 - **The log.** An append-only `ops` table in Postgres stores one row per committed op `(room_id, rev, client_id, op, created_at)`. The server writes the row before it acks. An acked op is therefore durable, and an op that wasn't acked is resent by the client after reconnect.
 - **Snapshots.** Every **200 ops** the server stores the full document text.
   - Recovery and replay load the latest snapshot and apply the ops after it, so they never apply more than 199.
   - 200 is a starting point. It trades replay time (each apply is linear in document size) against snapshot storage (one document copy per 200 ops). Week 3 measures recovery time against ops since the last snapshot, and the interval is set from that.
-- **Replay.** Replay applies the log from rev 0 with each op's original timestamp, scaled for 1×, 4× or 16× playback.
+- **Replay.** Replay applies the log from rev 0 with each op's original timestamp, scaled for 1×, 4× or 16× playback. (The replay UI is still to come; the log already has the timestamps.)
+
+**As built.**
+- `packages/server/src/store.ts` holds four tables:
+  - `rooms`: settings, last run and the problem's title;
+  - `ops`: room, doc, rev, op, author and time;
+  - `snapshots`: room, doc, rev and text;
+  - `visits`: browser id, room and last seen.
+- **One queue per room.** Joins and ops for a room run through it (`Room.enqueue`). An op is committed in memory, then inserted, and only then acked and broadcast. Every client therefore hears about ops in the order they were saved. Two ops saved out of order would break the client state machine's assumption that server messages arrive in commit order.
+- **Settings saves run one after another,** each writing the latest state. The crash test caught the alternative: a save started earlier finished later and erased the test cases.
+- **Reload.** A reloaded document starts at its snapshot's revision (`ServerDoc` with a base). A client holding an older revision is told to rejoin.
+- **When the database is down,** saving fails softly. The room keeps working from memory and the error is logged, so an outage loses durability but never the live session.
+- **Cost, measured (METRICS §8).** Saving before the ack adds about 2–3 ms per edit at 40 editors. At 200 editors (about 1,300 saved edits/s) the database's commit rate is the limit (p95 133–380 ms on Postgres in Docker on the laptop). The fix, if that ever matters, is group commit: one insert for all ops waiting in a room's queue.
+- **Snapshot interval, measured.** Reload + join took 23–38 ms whether 0 or 199 ops were replayed. At interview-sized documents the interval doesn't change recovery time; it bounds the worst case for very long sessions.
 
 ## 12. Hosting
 

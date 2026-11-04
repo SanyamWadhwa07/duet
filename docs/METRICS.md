@@ -152,9 +152,57 @@ Over a real ~90 ms network, the naive baseline lost **about half** of all keystr
 - Runs per second at a fixed worker count: *pending*
 - Hostile-program suite (fork bomb, infinite loop, memory bomb, network call, file write): *pending*
 
-## 7. Persistence and usage (Week 3: not measured yet)
+## 7. Saved rooms: crash recovery and the cost of saving (2026-11-04)
 
-- Recovery time vs ops since the last snapshot: *pending*
+**Setup:**
+- Postgres 16 in Docker on the laptop (`postgres:16-alpine`), and the server with `DATABASE_URL` set.
+- Code at the commits "server: save rooms to Postgres" and "bench: crash-recovery test".
+- Snapshot every 200 ops.
+
+**Crash recovery** (`npm run recovery`, `packages/bench/src/recovery.ts`):
+- **Method:** two clients make N edits until all are acknowledged. The server process is then killed outright (SIGKILL, no shutdown code runs), started again, and a client rejoins.
+- **Pass:** the room's text and revision are identical to before the crash.
+- **Timing:** *reload + join* is from opening the socket to receiving the room. It covers loading the snapshot and the ops after it from Postgres, replaying them, and sending the room.
+
+| Edits (mode) | Revision | Snapshot at | Ops replayed | Server start | Reload + join | Result |
+|---|---:|---:|---:|---:|---:|---|
+| 150 (both typing) | 38 | none | 38 | 590 ms | 28.3 ms | PASS |
+| 450 (both typing) | 89 | none | 89 | 558 ms | 23.0 ms | PASS |
+| 1,000 (both typing) | 188 | none | 188 | 529 ms | 23.8 ms | PASS |
+| 199 (`EXACT=1`) | 199 | none | 199 | 703 ms | 38.0 ms | PASS |
+| 200 (`EXACT=1`) | 200 | 200 | 0 | 835 ms | 24.8 ms | PASS |
+| 399 (`EXACT=1`) | 399 | 200 | 199 | 529 ms | 29.6 ms | PASS |
+| 1,000 (`EXACT=1`) | 1,000 | 1,000 | 0 | 580 ms | 37.9 ms | PASS |
+| 1,199 (`EXACT=1`) | 1,199 | 1,000 | 199 | 732 ms | 33.4 ms | PASS |
+
+**Reading the table:**
+- With both clients typing at once, keystrokes typed while an op is in flight are composed. That's why 1,000 edits became 188 revisions.
+- `EXACT=1` waits for each ack, so every keystroke is one revision. That lands on both sides of the snapshot boundary.
+- Reload time didn't depend on how many ops were replayed (0 or 199). At this document size the snapshot interval bounds the worst case rather than changing the typical case.
+
+**Full app check** (`brag-output/work/saved-room-check.mjs`, a one-off script, not in the repo):
+1. A browser started a room, switched it to JavaScript and loaded the example.
+2. The front page listed the room under "Your rooms" by its problem title.
+3. The server was killed and restarted, and the room reopened.
+
+The first run showed the problem, language and code restored but **the 4 test cases missing**. That was a race between two settings saves, fixed by queueing them (see DESIGN §11). After the fix, all 3 runs restored the problem, 4 tests, language and code.
+
+**Cost of saving each edit before acknowledging it** (fresh server per run, 4 bots per room, 30 s; `bench/results/*-local-ot-*`):
+
+| Server | Bots × rooms | Edits/s | p50 ms | p95 ms | p99 ms | Lost |
+|---|---|---:|---:|---:|---:|---:|
+| in memory, new code | 200 × 50 | ~1,300 | 1.00–1.35 | 2.25–8.77 | 3.17–16.18 | 0 |
+| in memory, code before saving existed (b2bf7af) | 200 × 50 | ~1,300 | 1.29–1.54 | 8.74–12.97 | 17.26–224.23 | 0 |
+| saving to Postgres | 40 × 10 | ~260 | 2.82 | 5.92 | 9.88 | 0 |
+| saving to Postgres | 200 × 50 | ~1,300 | 9.77–124.3 | 133–380 | 203–816 | 0 |
+
+- **The new queues add no measurable cost.** Old and new code alternated, each on a fresh server process. Run-to-run spread on this laptop this evening, with other programs running, was larger than any difference. The earlier §3 runs (p95 2.6–3.0 ms) were on a quieter machine.
+- **Saving costs about 2–3 ms per edit at 40 editors.** At 200 editors the database's commit rate is the bottleneck. A pool of 10 connections instead of 5 didn't help (p95 194 ms, file `…mw27csnp`), so the pool went back to 5. Group commit is the known fix.
+- **Discarded:** two earlier runs on a server that had been running for a long time and held about 250 large benchmark rooms in memory (p95 14.7–16.4 ms, files `…mw2741ng`, `…mw275lcs`). They measured garbage-collection pressure, not the code.
+- **Losses:** none in any run (0 lost keystrokes, 0 diverged rooms).
+
+## 8. Usage (not measured yet)
+
 - Sessions held and unique users: *pending (real usage only)*
 
 ---

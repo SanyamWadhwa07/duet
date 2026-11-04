@@ -134,3 +134,29 @@ In the browser of whoever presses Run, inside a Web Worker. After 5 s the worker
 
 **4. Why are test cases last-writer-wins and not OT?**
 They're small, they're edited rarely, and they're saved when a field loses focus. Replacing the whole list is simple, and a lost edit to a test is easy to see and redo. The code and the problem are long, continuous text, so they get OT.
+
+---
+
+## Saved rooms (Nov 4)
+
+**1. What exactly is saved, and when?**
+- **Ops.** Every committed op goes to the `ops` table *before* the server acks it, so an edit you saw acknowledged survives a crash.
+- **Snapshots.** Every 200 ops per document, the full text goes to `snapshots`.
+- **Room row.** Settings, the last run and the problem's title go to `rooms`.
+
+*Code:* `packages/server/src/store.ts`, `room.ts` (`handle`, `saveRoom`).
+
+**2. How does a room come back after the server crashes?**
+`Room.open` loads the latest snapshot per document and replays the ops after it with `ServerDoc.replay`. The document then continues from that revision. *Test:* `npm run recovery` kills the server process outright mid-session and checks the text and revision are identical after restart.
+
+**3. Why is there a queue per room?**
+Saving is async. If two ops' inserts finished out of order and each was broadcast when its insert finished, a client could receive op 6 before the ack for its own op 5. The client state machine assumes server messages arrive in commit order, so it would transform wrongly and diverge. One queue per room keeps commit, save and broadcast in a single order.
+
+**4. The crash test found a bug. What was it?**
+Settings saves were fire-and-forget. A save triggered by the problem's title change finished after the save that added the test cases, and overwrote them with older settings. Now a room's settings saves run one after another, and each writes the latest state.
+
+**5. Why snapshot every 200 ops, if reload time didn't change?**
+At interview-sized documents, replaying 199 ops costs almost nothing (reload was 23–38 ms either way). The interval bounds the worst case: a 3-hour session can't make a reload replay thousands of ops. It's cheap insurance, and the measurement says the exact number barely matters here.
+
+**6. What does saving cost?**
+About 2–3 ms per edit at 40 editors. At 200 editors on the laptop, the database's commit rate becomes the bottleneck (p95 133–380 ms). The known fix is group commit: one insert for all ops waiting in a room's queue.

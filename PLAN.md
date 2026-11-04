@@ -86,6 +86,10 @@ Sanyam asked for the MVP live today, ahead of the original Week 3 deploy.
 
 ## Week 3 (Nov 18–24): history, replay, accounts, deploy
 
+**Status (2026-11-04):** started early.
+- **Done:** the Postgres op log, snapshots and crash recovery (tested); "Your rooms" per browser; and Markdown problem upload.
+- **Next:** Google sign-in, the replay UI, and reconnect with exactly-once resend.
+
 **Ship**
 1. Postgres: an append-only `ops` table per room `(room_id, rev, client_id, op, created_at)`, plus a `snapshots` table holding the document every 200 ops.
 2. Crash recovery: on start, a room loads its latest snapshot and replays the ops after it. Tested by killing the server mid-session.
