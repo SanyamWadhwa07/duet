@@ -79,3 +79,41 @@ All the ranges in one event refer to the text *before* the event. Sort the chang
 - Nothing is persisted. Rooms live in memory.
 
 All three are written down in `docs/DESIGN.md` §9, and the last two are scheduled for Week 3.
+
+---
+
+## Deploy MVP (Nov 4)
+
+**1. Why isn't the WebSocket server on Vercel with the front end?**
+Vercel runs short-lived functions. A Duet room needs one long-running process that keeps every member's socket open and the document in memory. Render runs the Dockerfile as an ordinary always-on process. *Doc:* `docs/DESIGN.md` §12.
+
+**2. How does the front end on Vercel know where the server is?**
+`VITE_WS_URL` is set in Vercel's environment variables, and Vite bakes it into the bundle at build time. Changing it means rebuilding. In development it's empty, and the app uses same-origin `/ws`, which Vite proxies to the local server. *Code:* `packages/web/src/session.ts`, top.
+
+**3. What does `/health` do, and who calls it?**
+- Render calls it to decide the service is up before sending traffic, and after each deploy.
+- The landing page calls it too (`wakeServer`), so a sleeping free instance starts waking while the visitor types their name.
+
+**4. Someone closes their laptop mid-interview. What happens to their seat and cursor?**
+- **Before:** TCP may never send a close, so they stayed a "member" forever and held 1 of the room's 4 seats.
+- **Now:** the server pings every socket every 30 s and terminates any that missed the previous ping. The normal leave path then runs: the seat is freed and the cursor is removed.
+
+*Code:* `packages/server/src/index.ts`, heartbeat.
+
+**5. Why do empty rooms get deleted, and why after 30 minutes and not immediately?**
+- **Why delete:** rooms and their whole op history live in memory, so on a public server they'd pile up forever.
+- **Why wait:** deleting the moment a room empties would wipe the document when the only person refreshes the page. 30 minutes covers refreshes and short breaks.
+
+Postgres in Week 3 makes this safe for any gap.
+
+**6. What happens to rooms when the free Render instance sleeps or redeploys?**
+They're lost, because memory is the only copy. That's the main reason the Week 3 op log exists: on start, a room reloads its snapshot plus the ops after it.
+
+**7. Why does the Docker image start with `node --import tsx` and not `tsx src/index.ts`?**
+The `tsx` CLI starts a second Node process as a child. With `--import tsx`, a single process loads the TypeScript, so the SIGTERM that Render sends on redeploy goes straight to the server.
+
+**8. Why can't the code runner be deployed today?**
+Every run starts a fresh Docker container with network, memory, process and CPU limits. Starting containers needs access to a Docker daemon, which Render and Vercel services don't get. So the runner needs its own VM (Week 2).
+
+**9. What does CI check on every push?**
+Typecheck of all four packages, the unit tests plus the 30,000 randomized convergence cases, and a build of the server Docker image. *File:* `.github/workflows/ci.yml`.
