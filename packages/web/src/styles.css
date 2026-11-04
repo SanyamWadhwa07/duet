@@ -87,7 +87,7 @@ body:has(.paper) { background: var(--paper); }
 .dot.you { background: var(--mute); }
 .people .role { margin-left: 6px; font-size: 12px; color: var(--mute); }
 .session-name { font-family: var(--display); font-weight: 600; font-size: 16px; }
-input.session-name { background: transparent; border: 1px solid transparent; border-radius: 6px; padding: 3px 8px; width: 16ch; }
+input.session-name { background: transparent; border: 1px solid transparent; border-radius: 6px; padding: 3px 8px; field-sizing: content; min-width: 12ch; max-width: 32ch; }
 input.session-name:hover, input.session-name:focus { border-color: var(--line); background: var(--graphite); }
 .topbar a.ghost { text-decoration: none; }
 .badge { font-size: 13px; font-weight: 600; padding: 3px 10px; border-radius: 999px; }
@@ -118,9 +118,9 @@ input.session-name:hover, input.session-name:focus { border-color: var(--line); 
 .problem-pane { grid-area: problem; border-right: 1px solid var(--line); }
 .code-pane { grid-area: code; }
 .console { grid-area: console; border-top: 1px solid var(--line); }
-.pane-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px 0; }
+.pane-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 10px 16px 0; }
 .pane-head h2 { font-family: var(--display); font-size: 16px; font-weight: 600; margin: 0; }
-.pane-actions { display: flex; gap: 8px; }
+.pane-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .editor-wrap { position: relative; flex: 1; min-height: 0; }
 .markdown { position: absolute; inset: 0; overflow: auto; padding: 6px 20px 24px; font-size: 15px; line-height: 1.6; max-width: 72ch; }
 .markdown h1, .markdown h2, .markdown h3 { font-family: var(--display); font-weight: 600; line-height: 1.2; margin: 18px 0 8px; }
