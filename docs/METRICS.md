@@ -157,10 +157,17 @@ Over a real ~90 ms network, the naive baseline lost **about half** of all keystr
 
 ---
 
-## Draft resume lines
+## Resume lines (SDE resume v3.2, 2026-11-04)
 
-Each line uses only numbers from this file.
+These are the Duet bullets as they appear on the resume. Each number points to the section of this file that measured it.
 
-- Built an operational-transformation sync engine (TypeScript; insert/retain/delete ops, a central server ordering ops by revision) with no CRDT library. It is verified by 30,000 seeded randomized convergence tests on every run (300,000 in a soak run), all passing.
-- On the deployed server (Render, Singapore), over a real ~90 ms network, two people typing at once lost 0 keystrokes vs 49% lost by a whole-file-rebroadcast baseline (the Code-Sync approach), using about 54× fewer bytes per keystroke (80.7 B vs 4,320 B on a 2 KB file).
-- Served 200 concurrent bot editors in 50 rooms (about 1,290 ops/s) on one Node `ws` process at p95 op round-trip of 2.6–3.0 ms (localhost). On the deployed free instance, 40 editors saw p95 105 ms against a 98 ms network ping.
+1. "Built a live coding-interview room where 2–4 people edit one file, on its own operational-transformation sync engine (no CRDT library) that **30,000** randomized tests check on every push."
+   - 30,000 = 10,000 TP1 + 10,000 compose + 10,000 simulations, run by `npm test` in CI on every push (§1, `.github/workflows/ci.yml`).
+2. "Measured the live deploy against a whole-file re-broadcast baseline: with two people typing at once over a 90 ms network, re-broadcast lost **49%** of keystrokes and Duet lost **none**, while sending **54x** fewer bytes per keystroke."
+   - §5, both servers deployed, 3 runs each. Ping p50 was 82–93 ms.
+   - Lost keystrokes: re-broadcast lost 564 of 1,145 (49.3%); OT lost 0 of 1,151.
+   - Bytes per keystroke: 4,320 vs 80.7, which is 53.5×.
+3. "Load-tested the Node WebSocket server with 200 bot editors in 50 rooms (**1,300 edits/s** at p95 under 3 ms on a laptop) and deployed it in Docker on Render with a Vercel front end."
+   - §3, 3 runs at 1,292–1,293 ops/s with p95 2.64–2.97 ms on localhost.
+
+**Not on the resume until built and measured:** the sandboxed runner (cold vs warm start, hostile suite), replay, and Postgres recovery.
