@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "bench": "tsx src/bots.ts",
-    "e2e": "tsx src/e2e.ts"
+    "e2e": "tsx src/e2e.ts",
+    "demo": "tsx src/record-demo.ts"
   },
   "dependencies": {
     "@duet/ot": "*",
