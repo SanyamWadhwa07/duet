@@ -1,9 +1,21 @@
-// Connects one Monaco editor to a Duet room: local edits become ops, remote ops become editor edits,
-// and remote cursors are drawn as decorations.
-import { OpBuilder, OTClient, transformIndex, type ClientMsg, type Op, type Peer, type Selection, type ServerMsg, type SyncMode } from '@duet/ot';
+// Connects the browser to a Duet room: the code and the problem statement are two Monaco models kept
+// in sync with OT; presence (who is here, where their cursor is), settings and run reports ride along.
+import {
+  OpBuilder, OTClient, transformIndex,
+  type ClientMsg, type Op, type Peer, type RoomSettings, type RunReport, type Selection, type ServerMsg, type SyncMode,
+} from '@duet/ot';
 import { monaco } from './monaco';
 
-type Listeners = { peers(peers: Peer[]): void; status(status: string): void };
+export type Status = 'connecting' | 'waking' | 'connected' | 'reconnecting' | 'full';
+export type RoomState = {
+  status: Status;
+  you: string;
+  peers: Peer[];
+  settings: RoomSettings | null;
+  lastRun: RunReport | null;
+  notice: string | null;
+};
+type Listener = (patch: Partial<RoomState>) => void;
 
 // In production the front end (Vercel) and the WebSocket server (Render) are on different hosts,
 // so the build is given the server's address. In development Vite proxies /ws on the same origin.
@@ -14,85 +26,43 @@ export function wakeServer() {
   fetch(WS_URL.replace(/^ws/, 'http').replace(/\/ws$/, '/health'), { mode: 'no-cors' }).catch(() => {});
 }
 
-export class RoomSession {
-  mode: SyncMode = 'ot';
+/** Keeps one Monaco model in sync with one server document. */
+class DocBinding {
   client: OTClient | null = null;
-  private ws: WebSocket;
-  private model: monaco.editor.ITextModel;
+  /** Called with every op applied to the model, local or remote. */
+  onOp: (op: Op) => void = () => {};
+  /** Naive baseline mode: send the whole text instead of an op. */
+  sendWhole: ((text: string) => void) | null = null;
   private applyingRemote = false;
-  private peers = new Map<string, Peer>();
-  private cursors = new Map<string, Selection>(); // remote selections, as offsets into *our* copy
-  private decorations: monaco.editor.IEditorDecorationsCollection;
-  private disposables: monaco.IDisposable[] = [];
-  private selTimer: ReturnType<typeof setTimeout> | undefined;
-  private lastSel = '';
+  private listener: monaco.IDisposable;
 
-  constructor(private editor: monaco.editor.IStandaloneCodeEditor, room: string, name: string, private on: Listeners) {
-    this.model = editor.getModel()!;
-    this.model.setEOL(monaco.editor.EndOfLineSequence.LF);
-    this.decorations = editor.createDecorationsCollection();
-    editor.updateOptions({ readOnly: true }); // until we have the server's copy
-
-    this.ws = new WebSocket(WS_URL);
-    this.ws.onopen = () => this.send({ t: 'join', room, name });
-    this.ws.onmessage = e => this.receive(JSON.parse(e.data));
-    this.ws.onclose = () => { editor.updateOptions({ readOnly: true }); on.status('disconnected (reload to rejoin)'); };
-
-    this.disposables.push(
-      this.model.onDidChangeContent(e => this.onLocalChange(e)),
-      editor.onDidChangeCursorSelection(() => this.scheduleSelection()),
-    );
+  constructor(readonly model: monaco.editor.ITextModel, private send: (rev: number, op: Op) => void) {
+    model.setEOL(monaco.editor.EndOfLineSequence.LF);
+    this.listener = model.onDidChangeContent(e => this.onLocalChange(e));
   }
 
-  /** True when every local edit has been acknowledged by the server. */
-  get synced() { return this.mode === 'naive' || (this.client?.synced ?? false); }
+  get synced() { return this.client?.synced ?? false; }
+  /** True if an edit was sent and not yet acknowledged. */
+  get pending() { return this.client !== null && !this.client.synced; }
 
-  close() {
-    this.ws.close();
-    clearTimeout(this.selTimer);
-    this.disposables.forEach(d => d.dispose());
+  /** Starts over from the server's copy (on join, and again after a reconnect). */
+  reset(revision: number, text: string) {
+    this.replaceAll(text);
+    this.client = new OTClient(revision, this.send, op => this.applyRemote(op));
   }
 
-  private send(msg: ClientMsg) {
-    if (this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg));
+  replaceAll(text: string) {
+    this.withRemote(() => this.model.applyEdits([{ range: this.model.getFullModelRange(), text }]));
   }
 
-  private receive(msg: ServerMsg) {
-    switch (msg.t) {
-      case 'init':
-        this.mode = msg.mode;
-        this.replaceAll(msg.doc);
-        this.client = new OTClient(msg.rev, (rev, op) => this.send({ t: 'op', rev, op }), op => this.applyRemote(op));
-        msg.peers.forEach(p => this.peers.set(p.id, p));
-        this.editor.updateOptions({ readOnly: false });
-        this.on.peers([...this.peers.values()]);
-        this.on.status(msg.mode === 'naive' ? 'connected (naive baseline mode)' : 'connected');
-        return;
-      case 'ack': return this.client!.ack();
-      case 'op': return this.client!.remote(msg.op);
-      case 'file': return this.replaceAll(msg.doc);
-      case 'sel':
-        this.cursors.set(msg.id, msg.sel);
-        return this.renderCursors();
-      case 'join':
-        this.peers.set(msg.peer.id, msg.peer);
-        return this.on.peers([...this.peers.values()]);
-      case 'leave':
-        this.peers.delete(msg.id);
-        this.cursors.delete(msg.id);
-        this.renderCursors();
-        return this.on.peers([...this.peers.values()]);
-      case 'error':
-        return this.on.status(`error: ${msg.message}`);
-    }
-  }
+  dispose() { this.listener.dispose(); }
 
   private onLocalChange(e: monaco.editor.IModelContentChangedEvent) {
-    if (this.applyingRemote) return;
-    if (this.mode === 'naive') return this.send({ t: 'file', doc: this.model.getValue() });
+    if (this.applyingRemote || !this.client) return;
+    if (this.sendWhole) return this.sendWhole(this.model.getValue());
     const op = changesToOp(e.changes, this.model.getValueLength());
-    this.shiftCursors(op);
-    this.client!.local(op);
+    this.onOp(op);
+    this.client.local(op);
   }
 
   /** Applies a remote op to Monaco as one batch of edits, all positioned against the current text. */
@@ -108,27 +78,139 @@ export class RoomSession {
         const next = op[i + 1];
         if (typeof next === 'number' && next < 0) { del = -next; i++; } // insert + delete here = one replace
       } else del = -c;
-      edits.push({ range: this.range(index, index + del), text });
+      edits.push({ range: rangeOf(this.model, index, index + del), text });
       index += del;
     }
     this.withRemote(() => this.model.applyEdits(edits));
-    this.shiftCursors(op);
-  }
-
-  private replaceAll(text: string) {
-    this.withRemote(() => this.model.applyEdits([{ range: this.model.getFullModelRange(), text }]));
+    this.onOp(op);
   }
 
   private withRemote(fn: () => void) {
     this.applyingRemote = true;
     try { fn(); } finally { this.applyingRemote = false; }
   }
+}
 
-  private range(from: number, to: number) {
-    return monaco.Range.fromPositions(this.model.getPositionAt(from), this.model.getPositionAt(to));
+export class RoomSession {
+  mode: SyncMode = 'ot';
+  readonly code: DocBinding;
+  readonly problem: DocBinding;
+  private ws: WebSocket | null = null;
+  private closed = false;
+  private attempts = 0;
+  private wakeTimer: ReturnType<typeof setTimeout> | undefined;
+  private peers = new Map<string, Peer>();
+  private cursors = new Map<string, Selection>(); // remote selections, as offsets into *our* copy of the code
+  private decorations: monaco.editor.IEditorDecorationsCollection;
+  private selListener: monaco.IDisposable;
+  private selTimer: ReturnType<typeof setTimeout> | undefined;
+  private lastSel = '';
+
+  constructor(
+    private editor: monaco.editor.IStandaloneCodeEditor,
+    private problemEditor: monaco.editor.IStandaloneCodeEditor,
+    private room: string,
+    private name: string,
+    private on: Listener,
+  ) {
+    this.code = new DocBinding(editor.getModel()!, (rev, op) => this.send({ t: 'op', rev, op }));
+    this.problem = new DocBinding(problemEditor.getModel()!, (rev, op) => this.send({ t: 'op', doc: 'problem', rev, op }));
+    this.code.onOp = op => this.shiftCursors(op);
+    this.decorations = editor.createDecorationsCollection();
+    this.selListener = editor.onDidChangeCursorSelection(() => this.scheduleSelection());
+    this.connect();
   }
 
-  // --- presence -------------------------------------------------------------------------------
+  /** True when every local edit has been acknowledged by the server. */
+  get synced() { return this.mode === 'naive' || (this.code.synced && this.problem.synced); }
+
+  updateSettings(settings: Partial<RoomSettings>) { this.send({ t: 'settings', settings }); }
+  shareRun(report: Pick<RunReport, 'language' | 'results'>) { this.send({ t: 'run', report }); }
+
+  close() {
+    this.closed = true;
+    this.ws?.close();
+    clearTimeout(this.selTimer);
+    clearTimeout(this.wakeTimer);
+    this.selListener.dispose();
+    this.code.dispose();
+    this.problem.dispose();
+  }
+
+  /**
+   * Opens the socket and joins. If it drops, rejoins with backoff (1, 2, 4, 8, 10 s...) and starts again
+   * from the server's copy. A free-tier server can take up to a minute to wake, so after 3 s without an
+   * answer the status says so instead of a bare "connecting".
+   */
+  private connect() {
+    this.setEditable(false);
+    const ws = new WebSocket(WS_URL);
+    this.ws = ws;
+    this.wakeTimer = setTimeout(() => this.on({ status: 'waking' }), 3000);
+    ws.onopen = () => this.send({ t: 'join', room: this.room, name: this.name });
+    ws.onmessage = e => this.receive(JSON.parse(e.data));
+    ws.onclose = () => {
+      clearTimeout(this.wakeTimer);
+      if (this.closed) return;
+      this.setEditable(false);
+      this.on({ status: 'reconnecting' });
+      setTimeout(() => this.connect(), Math.min(10_000, 1000 * 2 ** this.attempts++));
+    };
+  }
+
+  private send(msg: ClientMsg) {
+    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg));
+  }
+
+  private receive(msg: ServerMsg) {
+    switch (msg.t) {
+      case 'init': {
+        const lost = this.code.pending || this.problem.pending;
+        clearTimeout(this.wakeTimer);
+        this.attempts = 0;
+        this.mode = msg.mode;
+        this.code.sendWhole = msg.mode === 'naive' ? doc => this.send({ t: 'file', doc }) : null;
+        this.code.reset(msg.rev, msg.doc);
+        this.problem.reset(msg.problem.rev, msg.problem.doc);
+        this.peers = new Map(msg.peers.map(p => [p.id, p]));
+        this.cursors.clear();
+        this.renderCursors();
+        this.setEditable(true);
+        this.on({
+          status: 'connected', you: msg.you, peers: [...this.peers.values()], settings: msg.settings, lastRun: msg.lastRun,
+          notice: lost ? 'Reconnected. Your last few keystrokes before the connection dropped were not saved.' : null,
+        });
+        return;
+      }
+      case 'ack': return (msg.doc === 'problem' ? this.problem : this.code).client!.ack();
+      case 'op': return (msg.doc === 'problem' ? this.problem : this.code).client!.remote(msg.op);
+      case 'file': return this.code.replaceAll(msg.doc);
+      case 'settings': return this.on({ settings: msg.settings });
+      case 'run': return this.on({ lastRun: msg.report });
+      case 'sel':
+        this.cursors.set(msg.id, msg.sel);
+        return this.renderCursors();
+      case 'join':
+        this.peers.set(msg.peer.id, msg.peer);
+        return this.on({ peers: [...this.peers.values()] });
+      case 'leave':
+        this.peers.delete(msg.id);
+        this.cursors.delete(msg.id);
+        this.renderCursors();
+        return this.on({ peers: [...this.peers.values()] });
+      case 'error':
+        // A full room is final; any other error means our copy went wrong, and the reconnect fixes it.
+        if (/full/.test(msg.message)) { this.closed = true; this.on({ status: 'full' }); }
+        return;
+    }
+  }
+
+  private setEditable(editable: boolean) {
+    this.editor.updateOptions({ readOnly: !editable });
+    this.problemEditor.updateOptions({ readOnly: !editable });
+  }
+
+  // --- presence (code editor only) ---------------------------------------------------------------
 
   /** Sends our selection at most every 50 ms, and only when it changed. */
   private scheduleSelection() {
@@ -137,8 +219,9 @@ export class RoomSession {
       this.selTimer = undefined;
       const s = this.editor.getSelection();
       if (!s) return;
+      const model = this.code.model;
       // getSelectionStart() is the anchor (where the drag began); getPosition() is the caret.
-      const sel: Selection = [this.model.getOffsetAt(s.getSelectionStart()), this.model.getOffsetAt(s.getPosition())];
+      const sel: Selection = [model.getOffsetAt(s.getSelectionStart()), model.getOffsetAt(s.getPosition())];
       const key = sel.join();
       if (key !== this.lastSel) { this.lastSel = key; this.send({ t: 'sel', sel }); }
     }, 50);
@@ -153,24 +236,28 @@ export class RoomSession {
   }
 
   private renderCursors() {
+    const model = this.code.model;
     const decorations: monaco.editor.IModelDeltaDecoration[] = [];
-    const len = this.model.getValueLength();
+    const len = model.getValueLength();
     for (const [id, [anchor, head]] of this.cursors) {
       const peer = this.peers.get(id);
       if (!peer) continue;
       const cls = colorClass(peer.color);
       const at = Math.min(head, len);
       if (anchor !== head) {
-        decorations.push({ range: this.range(Math.min(anchor, head, len), Math.min(Math.max(anchor, head), len)), options: { className: `${cls}-sel` } });
+        decorations.push({ range: rangeOf(model, Math.min(anchor, head, len), Math.min(Math.max(anchor, head), len)), options: { className: `${cls}-sel` } });
       }
       decorations.push({
-        range: this.range(at, at),
+        range: rangeOf(model, at, at),
         options: { beforeContentClassName: `${cls}-caret`, hoverMessage: { value: peer.name }, stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges },
       });
     }
     this.decorations.set(decorations);
   }
 }
+
+const rangeOf = (model: monaco.editor.ITextModel, from: number, to: number) =>
+  monaco.Range.fromPositions(model.getPositionAt(from), model.getPositionAt(to));
 
 /**
  * Turns one Monaco change event into one op. All ranges in an event refer to the text *before*
