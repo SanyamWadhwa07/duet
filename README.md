@@ -25,7 +25,9 @@ The sync engine is my own operational transformation (OT) with a central server.
 - Keep time with a shared interview timer.
 - Start from an example problem with one click.
 
-**Status:** Week 1 (the sync core) and the interview room are done and deployed. Next are the server-side Docker runner (C++ and stronger isolation), then the op log with replay and reconnect without loss. The plan is in [PLAN.md](PLAN.md).
+**Reconnect:** if the connection drops, keep typing. On the way back the page gets exactly what it missed, and every edit lands once: none lost, none doubled ([DESIGN §15](docs/DESIGN.md)).
+
+**Status:** the sync core, the interview room, saved rooms, roles and reconnect are done. Next are the replay UI and the server-side Docker runner (C++ and stronger isolation). The plan is in [PLAN.md](PLAN.md).
 
 ## Layout
 
@@ -34,7 +36,7 @@ The sync engine is my own operational transformation (OT) with a central server.
 | `packages/ot` | Operations (retain/insert/delete) with `apply`, `compose`, `transform`; the client state machine; the server document; the wire protocol types; and the randomized convergence tests |
 | `packages/server` | Node + `ws` WebSocket server: rooms of up to 4, presence, and the naive baseline mode |
 | `packages/web` | React + Monaco front end and the editor ↔ OT binding (`src/session.ts`) |
-| `packages/bench` | Bot load test plus the OT-vs-naive comparison (`src/bots.ts`), and the browser exit test (`src/e2e.ts`) |
+| `packages/bench` | Bot load test plus the OT-vs-naive comparison (`src/bots.ts`), the browser exit test (`src/e2e.ts`), the reconnect test (`src/reconnect.ts`) and the crash-recovery test (`src/recovery.ts`) |
 | `bench/results` | Raw JSON from every benchmark run quoted in `METRICS.md` |
 
 ## Run it
@@ -63,6 +65,7 @@ The front end deploys to Vercel (`vercel.json`) and the WebSocket server to Rend
 npm test                           # unit + randomized convergence property tests
 OT_SCALE=10 npm test               # 10x soak run of the property tests
 npm run e2e                        # exit test: browser tabs type concurrently, must end identical (needs server + web running; uses installed Edge)
+npm run reconnect                  # browser test: lose an ack, lose an op, cut the network; every edit must land once
 npm run bench                      # bot load test (see the header of packages/bench/src/bots.ts for settings)
 npm run demo                       # record docs/demo.gif from the live site (uses installed Edge and ffmpeg)
 ```

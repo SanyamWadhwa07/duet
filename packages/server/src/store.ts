@@ -8,7 +8,8 @@ import type { DocId, Op, RoomSettings, RunReport } from '@duet/ot';
 export const SNAPSHOT_EVERY = 200;
 const DOCS: DocId[] = ['code', 'problem'];
 
-export type SavedDoc = { base: number; text: string; ops: Op[] };
+/** `authors[k]` is the client id of the page that sent `ops[k]` (null for ops saved before ids existed). */
+export type SavedDoc = { base: number; text: string; ops: Op[]; authors: (string | null)[] };
 /** The small per-room state saved alongside the op log. `hostKey` is the interviewer key (a secret). */
 export type RoomRow = { settings: RoomSettings; lastRun: RunReport | null; title: string; hostKey: string | null };
 export type SavedRoom = Partial<RoomRow> & { docs: Record<DocId, SavedDoc> };
@@ -18,8 +19,8 @@ export type RecentRoom = { room: string; name: string; title: string; lastSeen: 
 export interface Store {
   /** The room's latest snapshot per document plus every op after it, or null for a new room. */
   load(room: string): Promise<SavedRoom | null>;
-  /** Saves op number `rev` (it took the document from revision rev to rev + 1). */
-  appendOp(room: string, doc: DocId, rev: number, op: Op, author: string): Promise<void>;
+  /** Saves op number `rev` (it took the document from revision rev to rev + 1), with who sent it. */
+  appendOp(room: string, doc: DocId, rev: number, op: Op, name: string, client: string | null): Promise<void>;
   snapshot(room: string, doc: DocId, rev: number, text: string): Promise<void>;
   saveRoom(room: string, row: RoomRow): Promise<void>;
   /** Remembers that this browser (or signed-in user) was in this room, for the "Your rooms" list. */
@@ -58,6 +59,7 @@ create table if not exists duet.ops (
   created_at timestamptz not null default now(),
   primary key (room_id, doc, rev)
 );
+alter table duet.ops add column if not exists client text;
 create table if not exists duet.snapshots (
   room_id text not null,
   doc text not null,
@@ -101,17 +103,21 @@ export async function postgresStore(url: string): Promise<Store> {
           'select rev, text from duet.snapshots where room_id = $1 and doc = $2 order by rev desc limit 1', [room, doc]);
         const base: number = snap.rowCount ? snap.rows[0].rev : 0;
         const ops = await pool.query(
-          'select op from duet.ops where room_id = $1 and doc = $2 and rev >= $3 order by rev', [room, doc, base]);
-        docs[doc] = { base, text: snap.rowCount ? snap.rows[0].text : '', ops: ops.rows.map(row => row.op) };
+          'select op, client from duet.ops where room_id = $1 and doc = $2 and rev >= $3 order by rev', [room, doc, base]);
+        docs[doc] = {
+          base, text: snap.rowCount ? snap.rows[0].text : '',
+          ops: ops.rows.map(row => row.op),
+          authors: ops.rows.map(row => row.client),
+        };
       }
       const row = r.rows[0];
       return { settings: row.settings ?? undefined, lastRun: row.last_run, title: row.title, hostKey: row.host_key, docs };
     },
-    async appendOp(room, doc, rev, op, author) {
+    async appendOp(room, doc, rev, op, name, client) {
       if (rev === 0) await ensureRoom(room);
       // jsonb wants a JSON string; a JS array would be sent as a Postgres array.
-      await pool.query('insert into duet.ops (room_id, doc, rev, op, author) values ($1, $2, $3, $4, $5)',
-        [room, doc, rev, JSON.stringify(op), author]);
+      await pool.query('insert into duet.ops (room_id, doc, rev, op, author, client) values ($1, $2, $3, $4, $5, $6)',
+        [room, doc, rev, JSON.stringify(op), name, client]);
     },
     async snapshot(room, doc, rev, text) {
       await pool.query('insert into duet.snapshots (room_id, doc, rev, text) values ($1, $2, $3, $4) on conflict do nothing',

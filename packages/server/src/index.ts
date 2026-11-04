@@ -105,7 +105,9 @@ wss.on('connection', ws => {
       const r = room = await getRoom(msg.room);
       const user = typeof msg.user === 'string' && USER_ID.test(msg.user) ? msg.user : undefined;
       const key = typeof msg.key === 'string' && HOST_KEY.test(msg.key) ? msg.key : undefined;
-      member = await r.enqueue(() => r.join(ws, String(msg.name ?? ''), user, key));
+      const client = typeof msg.client === 'string' && USER_ID.test(msg.client) ? msg.client : undefined;
+      const since = msg.since && Number.isSafeInteger(msg.since.code) && Number.isSafeInteger(msg.since.problem) ? msg.since : undefined;
+      member = await r.enqueue(() => r.join(ws, String(msg.name ?? ''), user, key, client, since));
       if (!member) return fail('room is full');
       if (closed) r.leave(member); // the socket closed while the room was loading
       return;

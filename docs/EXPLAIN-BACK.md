@@ -75,10 +75,10 @@ All the ranges in one event refer to the text *before* the event. Sort the chang
 
 **16. What are the known gaps after Week 1?**
 - Undo is Monaco's local undo and isn't transform-aware.
-- A reconnect drops unacked edits.
-- Nothing is persisted. Rooms live in memory.
+- A reconnect drops unacked edits. *(Fixed Nov 4: see Reconnect below.)*
+- Nothing is persisted. Rooms live in memory. *(Fixed Nov 4: see Saved rooms.)*
 
-All three are written down in `docs/DESIGN.md` §9, and the last two are scheduled for Week 3.
+All three are written down in `docs/DESIGN.md` §9.
 
 ---
 
@@ -180,3 +180,38 @@ The server. The interface makes the problem editor read-only and hides the butto
 
 **4. Why does the database connection carry a certificate file?**
 Supabase signs its certificates with its own root CA, which Node doesn't trust. Plain `sslmode=require` fails, and switching verification off would allow a man-in-the-middle. Pinning Supabase's root (valid to 2031) keeps the connection both encrypted and verified. I proved it against the live pooler: pinned verifies, plain fails.
+
+---
+
+## Reconnect (Nov 4)
+
+**1. A connection drops while your edit is in flight. What can have happened to it?**
+Three things, and the client can't tell which:
+- it never reached the server;
+- the server committed it but the ack was lost;
+- it is still on its way on the dead connection.
+
+Resending blindly doubles it in the second case. Not resending loses it in the first.
+
+**2. So how does Duet decide?**
+- The page rejoins with its client id and the revision it is at.
+- The server sends every op committed since then, marking the ones this page sent.
+- If the in-flight op is among them, it was committed: the client counts it as acked and doesn't apply it again.
+- If not, it never committed, and the client sends it again, rebased on the new revision.
+
+*Code:* `OTClient.catchUp` and `resend` (`packages/ot/src/client.ts`), `Room.join` (`packages/server/src/room.ts`).
+
+**3. What about the third case: the old op arrives after the catch-up?**
+The server allows one connection per page. A rejoin closes the old connection, and the room ignores anything still arriving on it. So an op that isn't in the catch-up can never commit later. The property test models this; if the server took those ops anyway, the test fails on seed 1.
+
+**4. The plan said `(clientId, seq)` dedup. Why isn't there a sequence number?**
+I built it first. Then I saw that with the old connection ignored, the catch-up settles every case on its own, and the duplicate check never fired in 3,000 randomized runs. A sequence number on every op would add about 10 bytes per keystroke (about 12%) for nothing, so I took it out. Op messages are byte-for-byte what the benchmarks measured; only the join carries more.
+
+**5. Can I keep typing while offline?**
+Yes. The editor stays editable. Edits wait in the OT client (one op in flight plus a buffer) and go up after the catch-up. The browser test types in both tabs during a 2.5 s outage and checks every keystroke lands exactly once.
+
+**6. What if the server lost its history?**
+Then its revision numbers mean different ops, and a catch-up would be wrong. The browser checks: after catching up, its text must equal the server's text from `init` plus its own unsent edits. If not, it starts over from the server's copy and says the unsaved edits weren't kept. Silent divergence is the one outcome a collaborative editor must never have, so the check costs one string comparison per reconnect. Edits stay held until the check passes, so a reset never meets a stray ack.
+
+**7. How do you know the tests would catch a bug here?**
+I broke it on purpose three ways: applying our own committed op again, never resending, and letting the replaced connection's ops through. Each failed the property test, and the first two also failed the browser test.

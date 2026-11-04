@@ -17,7 +17,7 @@ const STATUS_TEXT: Record<RoomState['status'], string> = {
   connecting: 'Connecting',
   waking: 'Waking the server. Free hosting can take up to a minute.',
   connected: 'Connected',
-  reconnecting: 'Connection lost. Reconnecting.',
+  reconnecting: 'Connection lost. Reconnecting. Keep typing: your edits sync when it is back.',
   full: 'This room already has 4 people. Ask for a new link.',
 };
 const RESULT_TEXT: Record<TestResult['status'], string> = {

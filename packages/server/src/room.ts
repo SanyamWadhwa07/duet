@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { WebSocket } from 'ws';
 import {
   isOp, ServerDoc, targetLength,
-  type ClientMsg, type DocId, type Language, type Peer, type Role, type RoomSettings, type RunReport, type ServerMsg, type SyncMode,
+  type CatchUp, type ClientMsg, type DocId, type Language, type Peer, type Role, type RoomSettings, type RunReport, type ServerMsg, type SyncMode,
 } from '@duet/ot';
 import { SNAPSHOT_EVERY, type Store } from './store';
 
@@ -13,7 +13,8 @@ const STATUSES = ['passed', 'failed', 'ran', 'error', 'timeout'];
 const MAX_TESTS = 20, MAX_FIELD = 10_000, MAX_REPORT_BYTES = 100_000;
 const isText = (x: unknown, max = MAX_FIELD): x is string => typeof x === 'string' && x.length <= max;
 
-export type Member = Peer & { ws: WebSocket };
+/** `client` is the page's id, stable across its reconnects; ops it sends are tagged with it. */
+export type Member = Peer & { ws: WebSocket; client: string | null };
 
 export function send(ws: WebSocket, msg: ServerMsg) {
   if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg));
@@ -42,9 +43,9 @@ export class Room {
     const saved = await store.load(id);
     if (saved) {
       for (const doc of ['code', 'problem'] as DocId[]) {
-        const { base, text, ops } = saved.docs[doc];
+        const { base, text, ops, authors } = saved.docs[doc];
         room.docs[doc] = new ServerDoc(text, base);
-        room.docs[doc].replay(ops);
+        room.docs[doc].replay(ops, authors);
       }
       if (saved.settings) room.settings = saved.settings;
       room.lastRun = saved.lastRun ?? null;
@@ -70,8 +71,17 @@ export class Room {
    * Adds a member and sends them the current document. Returns null if the room is full.
    * Whoever presents the room's interviewer key is an interviewer; everyone else is a candidate.
    * A room's first key becomes its interviewer key: the creator's browser makes one when it creates the room.
+   * A page that is reconnecting sends `since`; if both documents still go back that far it gets what it
+   * missed (catch-up) instead of a fresh copy, so its in-flight edit is neither lost nor applied twice.
+   * A page has one connection at a time: its old one (often half-open after a network drop) is closed here,
+   * and anything still arriving on it is ignored, so an edit the catch-up didn't include can't land later.
    */
-  join(ws: WebSocket, name: string, user?: string, key?: string): Member | null {
+  join(ws: WebSocket, name: string, user?: string, key?: string, client?: string, since?: Record<DocId, number>): Member | null {
+    const old = client ? [...this.members.values()].find(m => m.client === client) : undefined;
+    if (old) {
+      this.leave(old);
+      old.ws.terminate();
+    }
     if (this.members.size >= this.maxPeers) return null;
     if (key && this.hostKey === null) {
       this.hostKey = key;
@@ -85,18 +95,27 @@ export class Room {
       color: COLORS.find(c => !used.has(c)) ?? COLORS[0],
       role,
       ws,
+      client: client ?? null,
     };
     send(ws, {
       t: 'init', mode: this.mode, rev: this.doc.revision, doc: this.doc.text,
       you: member.id, role, peers: [...this.members.values()].map(peerInfo),
       problem: { rev: this.docs.problem.revision, doc: this.docs.problem.text },
       settings: this.settings, lastRun: this.lastRun,
+      catchUp: client && since ? this.catchUp(client, since) : undefined,
     });
     this.broadcast(member, { t: 'join', peer: peerInfo(member) });
     this.members.set(member.id, member);
     this.emptySince = null;
     if (user) this.save(this.store.visit(user, this.id));
     return member;
+  }
+
+  private catchUp(client: string, since: Record<DocId, number>): Record<DocId, CatchUp[]> | undefined {
+    const code = this.docs.code.since(since.code), problem = this.docs.problem.since(since.problem);
+    if (!code || !problem) return undefined; // reloaded from a later snapshot: the client starts afresh
+    const mark = (entries: NonNullable<typeof code>) => entries.map(e => ({ op: e.op, mine: e.author === client }));
+    return { code: mark(code), problem: mark(problem) };
   }
 
   leave(member: Member) {
@@ -106,6 +125,7 @@ export class Room {
 
   /** Handles one message from a member. Throws on a protocol violation; the caller disconnects them. */
   async handle(member: Member, msg: ClientMsg) {
+    if (this.members.get(member.id) !== member) return; // a connection that has left or was replaced
     switch (msg.t) {
       case 'op': {
         const id = msg.doc ?? 'code';
@@ -115,9 +135,9 @@ export class Room {
         if (id === 'problem' && member.role !== 'interviewer') throw new Error('only the interviewer can edit the problem');
         if (targetLength(msg.op) > MAX_DOC_CHARS) throw new Error('document too large');
         const doc = this.docs[id];
-        const committed = doc.receive(msg.rev, msg.op);
+        const committed = doc.receive(msg.rev, msg.op, member.client);
         // Saved before the ack: an op the sender saw acknowledged survives a crash.
-        await this.save(this.store.appendOp(this.id, id, doc.revision - 1, committed, member.name));
+        await this.save(this.store.appendOp(this.id, id, doc.revision - 1, committed, member.name, member.client));
         if (doc.revision % SNAPSHOT_EVERY === 0) await this.save(this.store.snapshot(this.id, id, doc.revision, doc.text));
         if (id === 'problem' && titleOf(doc.text) !== this.title) {
           this.title = titleOf(doc.text);

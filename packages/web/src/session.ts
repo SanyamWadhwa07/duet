@@ -1,8 +1,8 @@
 // Connects the browser to a Duet room: the code and the problem statement are two Monaco models kept
 // in sync with OT; presence (who is here, where their cursor is), settings and run reports ride along.
 import {
-  OpBuilder, OTClient, transformIndex,
-  type ClientMsg, type Op, type Peer, type Role, type RoomSettings, type RunReport, type Selection, type ServerMsg, type SyncMode,
+  apply, OpBuilder, OTClient, transformIndex,
+  type CatchUp, type ClientMsg, type Op, type Peer, type Role, type RoomSettings, type RunReport, type Selection, type ServerMsg, type SyncMode,
 } from '@duet/ot';
 import { monaco } from './monaco';
 
@@ -54,6 +54,8 @@ class DocBinding {
   /** Naive baseline mode: send the whole text instead of an op. */
   sendWhole: ((text: string) => void) | null = null;
   private applyingRemote = false;
+  /** While true, ops are kept, not sent: not joined yet, or the connection dropped and the rejoin isn't answered. */
+  private held = true;
   private listener: monaco.IDisposable;
 
   constructor(readonly model: monaco.editor.ITextModel, private send: (rev: number, op: Op) => void) {
@@ -65,10 +67,38 @@ class DocBinding {
   /** True if an edit was sent and not yet acknowledged. */
   get pending() { return this.client !== null && !this.client.synced; }
 
-  /** Starts over from the server's copy (on join, and again after a reconnect). */
+  /** Starts over from the server's copy: on the first join, and after a reconnect the server couldn't catch up. */
   reset(revision: number, text: string) {
     this.replaceAll(text);
-    this.client = new OTClient(revision, this.send, op => this.applyRemote(op));
+    this.client = new OTClient(revision, (rev, op) => { if (!this.held) this.send(rev, op); }, op => this.applyRemote(op));
+    this.held = false;
+  }
+
+  /** The connection dropped. Typing goes on; the edits wait in the OT client until `resume`. */
+  hold() { this.held = true; }
+
+  /**
+   * After a reconnect: applies what the server committed while we were away, keeping our unsent edits.
+   * Then checks the result against the server's text. False if they disagree, e.g. the server restarted
+   * without a database and its revision numbers now mean a different history; the caller then resets.
+   */
+  catchUp(entries: CatchUp[], serverText: string): boolean {
+    const client = this.client!;
+    try {
+      client.catchUp(entries);
+      let expected = serverText; // the server's text plus our edits it hasn't seen
+      if (client.outstanding) expected = apply(expected, client.outstanding);
+      if (client.buffer) expected = apply(expected, client.buffer);
+      return this.model.getValue() === expected;
+    } catch {
+      return false; // an op that doesn't fit our copy: same verdict
+    }
+  }
+
+  /** Sends the edit the server hasn't committed, if any, and goes back to sending as we type. */
+  resume() {
+    this.held = false;
+    this.client!.resend();
   }
 
   replaceAll(text: string) {
@@ -126,6 +156,8 @@ export class RoomSession {
   private selTimer: ReturnType<typeof setTimeout> | undefined;
   private lastSel = '';
   private role: Role | null = null;
+  /** This page's id, sent on every join, so after a reconnect the server can tell which ops were ours. */
+  private readonly client = crypto.randomUUID();
 
   constructor(
     private editor: monaco.editor.IStandaloneCodeEditor,
@@ -141,6 +173,7 @@ export class RoomSession {
     this.code.onOp = op => this.shiftCursors(op);
     this.decorations = editor.createDecorationsCollection();
     this.selListener = editor.onDidChangeCursorSelection(() => this.scheduleSelection());
+    this.setEditable(false);
     this.connect();
   }
 
@@ -161,21 +194,26 @@ export class RoomSession {
   }
 
   /**
-   * Opens the socket and joins. If it drops, rejoins with backoff (1, 2, 4, 8, 10 s...) and starts again
-   * from the server's copy. A free-tier server can take up to a minute to wake, so after 3 s without an
-   * answer the status says so instead of a bare "connecting".
+   * Opens the socket and joins. If it drops, rejoins with backoff (1, 2, 4, 8, 10 s...). Typing carries on
+   * meanwhile; the rejoin says which revisions we have (`since`) so the server sends only what we missed.
+   * A free-tier server can take up to a minute to wake, so after 3 s without an answer the status says so
+   * instead of a bare "connecting".
    */
   private connect() {
-    this.setEditable(false);
     const ws = new WebSocket(WS_URL);
     this.ws = ws;
     this.wakeTimer = setTimeout(() => this.on({ status: 'waking' }), 3000);
-    ws.onopen = () => this.send({ t: 'join', room: this.room, name: this.name, user: browserId(), key: this.hostKey ?? undefined });
+    ws.onopen = () => this.send({
+      t: 'join', room: this.room, name: this.name, user: browserId(), key: this.hostKey ?? undefined,
+      client: this.client, since: this.since(),
+    });
     ws.onmessage = e => this.receive(JSON.parse(e.data));
     ws.onclose = () => {
       clearTimeout(this.wakeTimer);
       if (this.closed) return;
-      this.setEditable(false);
+      this.code.hold();
+      this.problem.hold();
+      if (this.mode !== 'ot') this.setEditable(false); // the naive baseline has no way to catch up
       this.on({ status: 'reconnecting' });
       setTimeout(() => this.connect(), Math.min(10_000, 1000 * 2 ** this.attempts++));
     };
@@ -183,6 +221,12 @@ export class RoomSession {
 
   private send(msg: ClientMsg) {
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg));
+  }
+
+  /** The revisions our two copies are at, on a rejoin in OT mode; undefined on the first join. */
+  private since() {
+    if (this.mode !== 'ot' || !this.code.client || !this.problem.client) return undefined;
+    return { code: this.code.client.revision, problem: this.problem.client.revision };
   }
 
   private receive(msg: ServerMsg) {
@@ -193,8 +237,16 @@ export class RoomSession {
         this.attempts = 0;
         this.mode = msg.mode;
         this.code.sendWhole = msg.mode === 'naive' ? doc => this.send({ t: 'file', doc }) : null;
-        this.code.reset(msg.rev, msg.doc);
-        this.problem.reset(msg.problem.rev, msg.problem.doc);
+        // Both copies must check out before either sends: a reset after a send would meet a stray ack.
+        const caughtUp = msg.catchUp !== undefined
+          && this.code.catchUp(msg.catchUp.code, msg.doc) && this.problem.catchUp(msg.catchUp.problem, msg.problem.doc);
+        if (caughtUp) {
+          this.code.resume();
+          this.problem.resume();
+        } else {
+          this.code.reset(msg.rev, msg.doc);
+          this.problem.reset(msg.problem.rev, msg.problem.doc);
+        }
         this.peers = new Map(msg.peers.map(p => [p.id, p]));
         this.cursors.clear();
         this.renderCursors();
@@ -202,7 +254,7 @@ export class RoomSession {
         this.setEditable(true);
         this.on({
           status: 'connected', you: msg.you, role: msg.role, peers: [...this.peers.values()], settings: msg.settings, lastRun: msg.lastRun,
-          notice: lost ? 'Reconnected. Your last few keystrokes before the connection dropped were not saved.' : null,
+          notice: lost && !caughtUp ? 'Reconnected, but the server could not take back your unsaved edits, so the room shows its copy.' : null,
         });
         return;
       }

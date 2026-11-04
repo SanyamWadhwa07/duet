@@ -118,7 +118,7 @@ The counts are in `METRICS.md`.
 ## 9. Known limits after Week 1
 
 - **Undo is local and not transform-aware.** Monaco's undo stack isn't transformed against remote edits, so undo after a remote edit can undo something slightly different from what you expect. Whatever undo does is still sent as a normal op, so peers never diverge.
-- **Reconnect drops unacked edits.** A dropped connection rejoins with fresh state. Fixed in Week 3 with `(clientId, seq)` dedup (section 11).
+- **Reconnect drops unacked edits.** A dropped connection rejoins with fresh state. *Fixed:* see §15.
 - **No persistence.** Rooms live in memory until the server restarts. *Fixed:* see §11.
 
 ## 10. Sandbox limits (*planned*, Week 2)
@@ -192,7 +192,7 @@ Every run happens in its own Docker container. The flags and the attack each one
 - **Trust model.** The code is visible in the shared editor before anyone runs it. It runs with the presser's own browser permissions, has no access to the page, and can't touch the server, so a fork bomb or memory bomb can at worst crash that person's tab, never the room.
 - **Given up.** C++ needs a compiler, so it waits for the Docker runner. A browser sandbox is also weaker than the container limits in §10. The server runner stays the plan; this is the version that works today.
 
-**Reconnect.** A dropped socket rejoins with backoff (1, 2, 4, 8, then 10 s) and restarts from the server's copy. If an edit was in flight, the user is told it may be lost. Exactly-once resend with `(clientId, seq)` is still the Week 3 fix.
+**Reconnect.** A dropped socket rejoins with backoff (1, 2, 4, 8, then 10 s). It used to restart from the server's copy and warn that an in-flight edit may be lost. *Replaced:* see §15.
 
 ## 14. Roles: interviewer and candidate (Nov 4)
 
@@ -218,3 +218,29 @@ Every run happens in its own Docker container. The flags and the attack each one
 **Given up.** Anyone with the interviewer link is an interviewer, and the first key to reach a brand-new room claims it. Room IDs are random and the creator joins immediately, so in practice the creator's key wins.
 
 **Database transport (with §11).** Supabase signs its Postgres certificates with its own root CA, which Node doesn't trust by default. A plain `sslmode=require` fails ("self-signed certificate in certificate chain"), and turning verification off would allow interception. The server trusts exactly Supabase's root (`packages/server/certs/supabase-root-2021.crt`, valid to 2031), so the connection is encrypted and verified.
+
+## 15. Reconnect without losing or doubling an edit (Nov 4)
+
+**The problem.** When a connection drops, the client's in-flight op is in one of three states, and the client can't tell which:
+1. it never reached the server;
+2. the server committed it, but the ack was lost;
+3. it is still on its way, on the dead connection, and may yet arrive.
+
+Resending blindly doubles the edit in case 2. Not resending loses it in case 1. Until now a rejoin threw the local copy away and started over from the server's, so case 1 lost the edit (and said so).
+
+**How it works.**
+- **Who sent what.** Every page makes a random client id and sends it on every join. The server records which client sent each committed op, in memory and in the `ops.client` column.
+- **What was missed.** On a rejoin the page also sends `since`: the revision each of its two documents is at. If the server's copy goes back that far, `init` carries `catchUp`: every op committed since then, each marked `mine` if this page sent it (`room.ts`, `ServerDoc.since`).
+- **Applying it.** `OTClient.catchUp()` applies those ops in order. One marked `mine` is the in-flight op whose ack was lost (case 2), so it counts as acked and is not applied again. If none is marked `mine`, the op was never committed (case 1), and `resend()` sends it again, rebased on the new revision.
+- **One connection per page.** Case 3 is closed on the server. A join from a client id that is already in the room closes the old connection, and the room ignores anything still arriving on it. An op that isn't in the catch-up therefore can never be committed later.
+- **Typing carries on.** The editor stays editable while disconnected. Edits wait in the OT client (the op in flight plus the buffer) and go up after the catch-up. The status line says so.
+
+**Why not `(clientId, seq)` dedup, as planned.** The plan (PLAN.md, Week 3) gave every op a sequence number so the server could drop resends. I built that first. While wiring it into the browser I saw that once the old connection is ignored, the catch-up alone settles every case: in 3,000 randomized runs the server's duplicate check never fired. A sequence number on every op would cost about 10 more bytes per keystroke (about 12% on top of the measured 80.7 B, METRICS §4) for a check that never fires, so I removed it. Op messages are unchanged; only the join carries the client id and `since`.
+
+**Trust, but check.** Catch-up trusts revision numbers. A server that lost history (a restart without a database, or saves failing during a database outage) reuses revision numbers for different ops. So after catching up, the browser compares its text with what it should be: the server's text from `init` plus its own unsent edits. If they differ, or an op doesn't fit, it starts over from the server's copy and says its unsaved edits were not kept. Nothing diverges silently. Edits are held until both documents pass this check, so a reset can never meet an ack for an op sent just before it.
+
+**When there is no catch-up.**
+- If the server reloaded from a snapshot newer than the page's revision, `since` falls before its history. The page starts over from the server's copy, with the notice if it had unsent edits.
+- The naive baseline has no catch-up. Its editor is read-only while disconnected, as before.
+
+**Tested** (METRICS §9): a 3,000-run property test with dropped connections; a browser test with a proxy that loses an ack, loses an op and cuts the network; mutation checks for all three; and a check of the lost-history fallback.

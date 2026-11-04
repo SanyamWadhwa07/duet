@@ -205,6 +205,46 @@ The first run showed the problem, language and code restored but **the 4 test ca
 
 - Sessions held and unique users: *pending (real usage only)*
 
+## 9. Reconnect: exactly once (2026-11-04)
+
+**Property test** (`packages/ot/test/reconnect.test.ts`):
+
+| Run | Runs | Result | Time |
+|---|---:|---|---|
+| `npm test` (every run) | 3,000 | all pass | 0.7–1.4 s |
+| `OT_SCALE=10` (soak) | 30,000 | all pass | 8.4 s |
+
+- **Setup:** one `ServerDoc` and 2–4 real `OTClient`s behind FIFO queues.
+- **Run:** 40–199 random steps. A step is one of: a client types (online or not), the server takes a client's next op, a client takes its next message, a connection drops, or a dropped client reconnects.
+- **What a drop does:** it loses every message in flight in both directions: ops on their way up, acks and ops on their way down. A send while offline is lost too.
+- **Reconnect:** the client applies `since(revision)` with its own ops marked, then `resend()`.
+- **Check:** each keystroke types a character nobody else typed. At the end every client is synced and equal to the server, and the server's characters are exactly the characters typed, each once.
+
+**Mutation checks.** Each break below was caught:
+
+| Deliberate bug | Property test | Browser test |
+|---|---|---|
+| The client applies its own committed op again (ignores `mine`) | seed 2: a character doubled | fails: stray `<` in the text |
+| The client never resends after a catch-up | seed 1: a client never synced | fails: tabs never converge |
+| The server still takes ops from a replaced connection | seed 1: op based on the wrong length | (server rule; the test models it) |
+
+**Browser test** (`npm run reconnect`, `packages/bench/src/reconnect.ts`, headless Edge, local server with Postgres):
+- **Setup:** tabs A and B share a room. B's WebSocket runs through a Playwright proxy (`routeWebSocket`) that can drop messages either way or cut the connection.
+- **Cases:**
+  1. *Lost ack:* B types while the server's replies are dropped, A types too, then the connection is cut.
+  2. *Lost op:* B types while its messages are dropped, then the connection is cut.
+  3. *Outage:* every connection attempt fails for 2.5 s while both tabs type.
+- **Result:** all 3 pass. After each case both tabs and the server held the same text, with every marker typed exactly once and no other text. B stayed editable while offline and showed no lost-edits notice.
+
+**Lost history** (one-off script, not in the repo): a server with no database was restarted, refilled to revision 8 while B was offline at revision 6, and then B rejoined. B's check found the catch-up didn't fit, B started over from the server's copy and showed the notice, and A, B and the server then agreed.
+
+**Regression on the same code:**
+- `npm run e2e` with 3 tabs for 10 s: 1,039 edits; all tabs identical to the server.
+- `npm run recovery`: 450 edits, server killed and restarted, identical text and revision.
+- Roles check: a candidate is still refused on the problem and tests, also after a restart.
+
+**Wire cost:** op, ack and broadcast messages are unchanged, so the bytes per keystroke in §4 and §5 still hold. Only the join message grew: a client id and two revision numbers.
+
 ---
 
 ## Resume lines (SDE resume v3.2, 2026-11-04)
