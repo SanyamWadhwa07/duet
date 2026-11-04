@@ -18,7 +18,7 @@ export type TestResult = { input: string; expected: string | null; output: strin
 export type RunReport = { by: string; at: number; language: Language; results: TestResult[] };
 
 export type ClientMsg =
-  | { t: 'join'; room: string; name: string }
+  | { t: 'join'; room: string; name: string; user?: string } // user: this browser's id, for "Your rooms"
   | { t: 'op'; doc?: DocId; rev: number; op: Op } // an op based on server revision `rev`
   | { t: 'file'; doc: string } // naive mode: the whole code file after a change
   | { t: 'sel'; sel: Selection } // presence in the code: ephemeral, not part of the document history

@@ -4,6 +4,7 @@ import {
   isOp, ServerDoc, targetLength,
   type ClientMsg, type DocId, type Language, type Peer, type RoomSettings, type RunReport, type ServerMsg, type SyncMode,
 } from '@duet/ot';
+import { SNAPSHOT_EVERY, type Store } from './store';
 
 const COLORS = ['#e8590c', '#1c7ed6', '#2f9e44', '#ae3ec9', '#f08c00', '#0c8599'];
 const MAX_DOC_CHARS = 200_000;
@@ -19,7 +20,7 @@ export function send(ws: WebSocket, msg: ServerMsg) {
 }
 
 /** One room: the code, the problem statement, small shared settings, and the 2-4 people in it.
- *  All state is in memory until the Week 3 op log. */
+ *  The live copy is in memory; every committed op is also saved to the store (Postgres, if configured). */
 export class Room {
   readonly docs: Record<DocId, ServerDoc> = { code: new ServerDoc(), problem: new ServerDoc() };
   readonly members = new Map<string, Member>();
@@ -27,13 +28,43 @@ export class Room {
   lastRun: RunReport | null = null;
   /** When the last member left (ms since epoch), or null while someone is in the room. */
   emptySince: number | null = Date.now();
+  private title = '';
+  private queue: Promise<unknown> = Promise.resolve();
+  private saves: Promise<unknown> = Promise.resolve();
 
-  constructor(readonly id: string, readonly mode: SyncMode, readonly maxPeers: number) {}
+  constructor(readonly id: string, readonly mode: SyncMode, readonly maxPeers: number, private store: Store) {}
+
+  /** Loads a saved room (latest snapshot + the ops after it), or starts an empty one. */
+  static async open(id: string, mode: SyncMode, maxPeers: number, store: Store): Promise<Room> {
+    const room = new Room(id, mode, maxPeers, store);
+    const saved = await store.load(id);
+    if (saved) {
+      for (const doc of ['code', 'problem'] as DocId[]) {
+        const { base, text, ops } = saved.docs[doc];
+        room.docs[doc] = new ServerDoc(text, base);
+        room.docs[doc].replay(ops);
+      }
+      if (saved.settings) room.settings = saved.settings;
+      room.lastRun = saved.lastRun;
+      room.title = titleOf(room.docs.problem.text);
+    }
+    return room;
+  }
 
   get doc() { return this.docs.code; }
 
+  /**
+   * Runs `task` after every earlier task for this room. Ops are committed, saved and announced inside
+   * one queue, so every client hears about them in the order they were committed and saved.
+   */
+  enqueue<T>(task: () => T | Promise<T>): Promise<T> {
+    const next = this.queue.then(task);
+    this.queue = next.catch(() => {});
+    return next;
+  }
+
   /** Adds a member and sends them the current document. Returns null if the room is full. */
-  join(ws: WebSocket, name: string): Member | null {
+  join(ws: WebSocket, name: string, user?: string): Member | null {
     if (this.members.size >= this.maxPeers) return null;
     const used = new Set([...this.members.values()].map(m => m.color));
     const member: Member = {
@@ -51,6 +82,7 @@ export class Room {
     this.broadcast(member, { t: 'join', peer: peerInfo(member) });
     this.members.set(member.id, member);
     this.emptySince = null;
+    if (user) this.save(this.store.visit(user, this.id));
     return member;
   }
 
@@ -60,7 +92,7 @@ export class Room {
   }
 
   /** Handles one message from a member. Throws on a protocol violation; the caller disconnects them. */
-  handle(member: Member, msg: ClientMsg) {
+  async handle(member: Member, msg: ClientMsg) {
     switch (msg.t) {
       case 'op': {
         const id = msg.doc ?? 'code';
@@ -68,7 +100,15 @@ export class Room {
         // The naive baseline only changes how the code syncs; the problem statement always uses OT.
         if ((id === 'code' && this.mode !== 'ot') || !isOp(msg.op)) throw new Error('bad op');
         if (targetLength(msg.op) > MAX_DOC_CHARS) throw new Error('document too large');
-        const committed = this.docs[id].receive(msg.rev, msg.op);
+        const doc = this.docs[id];
+        const committed = doc.receive(msg.rev, msg.op);
+        // Saved before the ack: an op the sender saw acknowledged survives a crash.
+        await this.save(this.store.appendOp(this.id, id, doc.revision - 1, committed, member.name));
+        if (doc.revision % SNAPSHOT_EVERY === 0) await this.save(this.store.snapshot(this.id, id, doc.revision, doc.text));
+        if (id === 'problem' && titleOf(doc.text) !== this.title) {
+          this.title = titleOf(doc.text);
+          this.saveRoom();
+        }
         // Code messages carry no `doc` field, so they stay byte-for-byte what the benchmarks measured.
         send(member.ws, id === 'code' ? { t: 'ack' } : { t: 'ack', doc: id });
         this.broadcast(member, id === 'code' ? { t: 'op', op: committed } : { t: 'op', doc: id, op: committed });
@@ -91,17 +131,32 @@ export class Room {
       case 'settings': {
         this.settings = { ...this.settings, ...cleanSettings(msg.settings) };
         this.broadcast(null, { t: 'settings', settings: this.settings });
+        this.saveRoom();
         return;
       }
       case 'run': {
         // Who ran it comes from the connection, not from the message.
         this.lastRun = { ...cleanReport(msg.report), by: member.name, at: Date.now() };
         this.broadcast(null, { t: 'run', report: this.lastRun });
+        this.saveRoom();
         return;
       }
       default:
         throw new Error('unknown message');
     }
+  }
+
+  /**
+   * Saves settings, last run and title. Saves run one after another and each writes the room's state at
+   * the time it runs; two in flight at once could land out of order and an older one would win.
+   */
+  private saveRoom() {
+    this.saves = this.saves.then(() => this.save(this.store.saveRoom(this.id, this.settings, this.lastRun, this.title)));
+  }
+
+  /** Saving is best effort: if the database is down the room keeps working from memory, and says so in the log. */
+  private save(p: Promise<void>) {
+    return p.catch(e => console.error(`room ${this.id}: save failed: ${(e as Error).message}`));
   }
 
   /** Sends to everyone in the room except `from` (null: everyone). Serialises once for all receivers. */
@@ -114,6 +169,10 @@ export class Room {
 }
 
 const peerInfo = ({ id, name, color }: Member): Peer => ({ id, name, color });
+
+/** The problem's first non-empty line, without Markdown heading marks: the room's name in "Your rooms". */
+const titleOf = (problem: string) =>
+  (problem.split('\n').find(line => line.trim()) ?? '').replace(/^#+/, '').trim().slice(0, 80);
 
 function cleanSettings(s: Partial<RoomSettings>): Partial<RoomSettings> {
   if (!s || typeof s !== 'object') throw new Error('bad settings');

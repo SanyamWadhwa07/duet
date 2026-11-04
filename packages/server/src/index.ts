@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
 import type { ClientMsg, SyncMode } from '@duet/ot';
 import { Room, send, type Member } from './room';
+import { memoryStore, postgresStore } from './store';
 
 const PORT = Number(process.env.PORT ?? 4000);
 const MODE: SyncMode = process.env.DUET_SYNC === 'naive' ? 'naive' : 'ot';
@@ -10,28 +11,59 @@ const HEARTBEAT_MS = Number(process.env.DUET_HEARTBEAT_MS ?? 30_000);
 const MAX_ROOMS = Number(process.env.DUET_MAX_ROOMS ?? 1000);
 const EMPTY_ROOM_TTL_MS = Number(process.env.DUET_EMPTY_ROOM_TTL_MS ?? 30 * 60_000);
 const ROOM_ID = /^[\w-]{1,64}$/;
+const USER_ID = /^[\w-]{8,64}$/;
 
-const rooms = new Map<string, Room>();
+// Without DATABASE_URL nothing is saved and rooms live only in memory.
+const store = process.env.DATABASE_URL ? await postgresStore(process.env.DATABASE_URL) : memoryStore;
 
-// Rooms live in memory (until the Week 3 op log), so a room nobody has been in for
-// EMPTY_ROOM_TTL_MS is dropped, together with its history. A refresh or short break keeps it.
+/** Rooms in memory. A room is a promise while it loads from the database. */
+const rooms = new Map<string, Promise<Room>>();
+function getRoom(id: string) {
+  let room = rooms.get(id);
+  if (!room) {
+    room = Room.open(id, MODE, MAX_PEERS, store);
+    rooms.set(id, room);
+    room.catch(() => rooms.delete(id));
+  }
+  return room;
+}
+
+// A room nobody has been in for EMPTY_ROOM_TTL_MS leaves memory. With a database it is still saved,
+// and the next visitor reloads it; without one, it is gone.
 setInterval(() => {
   const cutoff = Date.now() - EMPTY_ROOM_TTL_MS;
-  for (const [id, room] of rooms) if (room.emptySince !== null && room.emptySince < cutoff) rooms.delete(id);
+  for (const [id, pending] of rooms) {
+    pending.then(room => { if (room.emptySince !== null && room.emptySince < cutoff) rooms.delete(id); }, () => {});
+  }
 }, Math.min(60_000, EMPTY_ROOM_TTL_MS));
 
-const http = createServer((req, res) => {
+const json = (res: import('node:http').ServerResponse, body: unknown, headers: Record<string, string> = {}) => {
+  res.writeHead(200, { 'content-type': 'application/json', ...headers });
+  res.end(JSON.stringify(body));
+};
+
+const http = createServer(async (req, res) => {
+  const url = new URL(req.url ?? '/', 'http://duet');
   // Liveness check for the host (Render pings this before routing traffic).
-  if (req.url === '/health') {
-    res.writeHead(200, { 'content-type': 'application/json' });
-    return void res.end(JSON.stringify({ ok: true, mode: MODE, rooms: rooms.size }));
+  if (url.pathname === '/health') return json(res, { ok: true, mode: MODE, rooms: rooms.size, saved: store !== memoryStore });
+
+  // The rooms this browser has been in, newest first, for the front page. The front end is on another
+  // host, so this one answer is readable cross-origin. The id is the browser's own random id.
+  if (url.pathname === '/api/recent') {
+    const user = url.searchParams.get('user') ?? '';
+    if (!USER_ID.test(user)) return void res.writeHead(400).end();
+    try {
+      return json(res, await store.recent(user), { 'access-control-allow-origin': '*' });
+    } catch {
+      return void res.writeHead(503).end();
+    }
   }
+
   // Read-only room state, used by the e2e test to compare browser tabs with the server.
-  const match = req.url?.match(/^\/api\/rooms\/([\w-]{1,64})$/);
-  const room = match && rooms.get(match[1]);
+  const match = url.pathname.match(/^\/api\/rooms\/([\w-]{1,64})$/);
+  const room = match && rooms.has(match[1]) ? await rooms.get(match[1]) : null;
   if (!room) return void res.writeHead(404).end();
-  res.writeHead(200, { 'content-type': 'application/json' });
-  res.end(JSON.stringify({ revision: room.doc.revision, text: room.doc.text, peers: room.members.size }));
+  json(res, { revision: room.doc.revision, text: room.doc.text, peers: room.members.size });
 });
 
 const wss = new WebSocketServer({ server: http, path: '/ws', maxPayload: 1 << 20 });
@@ -51,6 +83,9 @@ setInterval(() => {
 wss.on('connection', ws => {
   let room: Room | undefined;
   let member: Member | null = null;
+  let closed = false;
+  // One message at a time per connection, so a join that waits on the database can't be overtaken.
+  let queue: Promise<void> = Promise.resolve();
   alive.add(ws);
   ws.on('pong', () => alive.add(ws));
 
@@ -59,24 +94,30 @@ wss.on('connection', ws => {
     ws.close();
   };
 
-  ws.on('message', raw => {
+  const onMessage = async (raw: string) => {
     let msg: ClientMsg;
-    try { msg = JSON.parse(raw.toString()); } catch { return fail('invalid JSON'); }
+    try { msg = JSON.parse(raw); } catch { return fail('invalid JSON'); }
 
     if (!member) {
       if (msg.t !== 'join' || typeof msg.room !== 'string' || !ROOM_ID.test(msg.room)) return fail('join first');
       if (!rooms.has(msg.room) && rooms.size >= MAX_ROOMS) return fail('server is full, try again later');
-      room = rooms.get(msg.room) ?? new Room(msg.room, MODE, MAX_PEERS);
-      rooms.set(room.id, room);
-      member = room.join(ws, String(msg.name ?? ''));
-      if (!member) fail('room is full');
+      const r = room = await getRoom(msg.room);
+      const user = typeof msg.user === 'string' && USER_ID.test(msg.user) ? msg.user : undefined;
+      member = await r.enqueue(() => r.join(ws, String(msg.name ?? ''), user));
+      if (!member) return fail('room is full');
+      if (closed) r.leave(member); // the socket closed while the room was loading
       return;
     }
-    try { room!.handle(member, msg); } catch (e) { fail((e as Error).message); }
-  });
+    const m = member;
+    await room!.enqueue(() => room!.handle(m, msg));
+  };
 
-  ws.on('close', () => { if (member) room!.leave(member); });
+  ws.on('message', raw => {
+    queue = queue.then(() => onMessage(raw.toString())).catch(e => fail((e as Error).message));
+  });
+  ws.on('close', () => { closed = true; if (member) room!.leave(member); });
   ws.on('error', () => ws.close());
 });
 
-http.listen(PORT, () => console.log(`duet server on :${PORT} (sync mode: ${MODE}, max ${MAX_PEERS} per room)`));
+http.listen(PORT, () => console.log(
+  `duet server on :${PORT} (sync mode: ${MODE}, max ${MAX_PEERS} per room, rooms ${store === memoryStore ? 'in memory only' : 'saved to Postgres'})`));
