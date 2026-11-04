@@ -2,7 +2,9 @@
 import type { Op } from './operation';
 
 export type SyncMode = 'ot' | 'naive';
-export type Peer = { id: string; name: string; color: string };
+/** The interviewer writes the problem, tests and timer; the candidate solves. Both write code and run it. */
+export type Role = 'interviewer' | 'candidate';
+export type Peer = { id: string; name: string; color: string; role: Role };
 /** A selection as [anchor, head] offsets into the document; equal values mean a plain cursor. */
 export type Selection = [number, number];
 
@@ -18,7 +20,8 @@ export type TestResult = { input: string; expected: string | null; output: strin
 export type RunReport = { by: string; at: number; language: Language; results: TestResult[] };
 
 export type ClientMsg =
-  | { t: 'join'; room: string; name: string; user?: string } // user: this browser's id, for "Your rooms"
+  // user: this browser's id, for "Your rooms". key: the room's interviewer key, if this browser holds it.
+  | { t: 'join'; room: string; name: string; user?: string; key?: string }
   | { t: 'op'; doc?: DocId; rev: number; op: Op } // an op based on server revision `rev`
   | { t: 'file'; doc: string } // naive mode: the whole code file after a change
   | { t: 'sel'; sel: Selection } // presence in the code: ephemeral, not part of the document history
@@ -27,7 +30,7 @@ export type ClientMsg =
 
 export type ServerMsg =
   | {
-      t: 'init'; mode: SyncMode; rev: number; doc: string; you: string; peers: Peer[];
+      t: 'init'; mode: SyncMode; rev: number; doc: string; you: string; role: Role; peers: Peer[];
       problem: { rev: number; doc: string }; settings: RoomSettings; lastRun: RunReport | null;
     }
   | { t: 'ack'; doc?: DocId }

@@ -13,6 +13,7 @@ RUN npm ci --omit=dev --workspace @duet/server && npm cache clean --force
 
 COPY packages/ot/src packages/ot/src
 COPY packages/server/src packages/server/src
+COPY packages/server/certs packages/server/certs
 
 ENV NODE_ENV=production PORT=4000
 EXPOSE 4000

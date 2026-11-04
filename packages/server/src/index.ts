@@ -12,6 +12,7 @@ const MAX_ROOMS = Number(process.env.DUET_MAX_ROOMS ?? 1000);
 const EMPTY_ROOM_TTL_MS = Number(process.env.DUET_EMPTY_ROOM_TTL_MS ?? 30 * 60_000);
 const ROOM_ID = /^[\w-]{1,64}$/;
 const USER_ID = /^[\w-]{8,64}$/;
+const HOST_KEY = /^[\w-]{16,64}$/;
 
 // Without DATABASE_URL nothing is saved and rooms live only in memory.
 const store = process.env.DATABASE_URL ? await postgresStore(process.env.DATABASE_URL) : memoryStore;
@@ -103,7 +104,8 @@ wss.on('connection', ws => {
       if (!rooms.has(msg.room) && rooms.size >= MAX_ROOMS) return fail('server is full, try again later');
       const r = room = await getRoom(msg.room);
       const user = typeof msg.user === 'string' && USER_ID.test(msg.user) ? msg.user : undefined;
-      member = await r.enqueue(() => r.join(ws, String(msg.name ?? ''), user));
+      const key = typeof msg.key === 'string' && HOST_KEY.test(msg.key) ? msg.key : undefined;
+      member = await r.enqueue(() => r.join(ws, String(msg.name ?? ''), user, key));
       if (!member) return fail('room is full');
       if (closed) r.leave(member); // the socket closed while the room was loading
       return;

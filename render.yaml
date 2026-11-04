@@ -14,7 +14,7 @@ services:
     envVars:
       - key: DUET_SYNC
         value: ot
-      # Postgres connection string (for example from Neon). Render asks for it on Blueprint sync;
+      # Postgres connection string (Supabase session pooler). Render asks for it on Blueprint sync;
       # without it rooms live only in memory.
       - key: DATABASE_URL
         sync: false

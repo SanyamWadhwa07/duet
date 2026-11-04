@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { WebSocket } from 'ws';
 import {
   isOp, ServerDoc, targetLength,
-  type ClientMsg, type DocId, type Language, type Peer, type RoomSettings, type RunReport, type ServerMsg, type SyncMode,
+  type ClientMsg, type DocId, type Language, type Peer, type Role, type RoomSettings, type RunReport, type ServerMsg, type SyncMode,
 } from '@duet/ot';
 import { SNAPSHOT_EVERY, type Store } from './store';
 
@@ -29,6 +29,8 @@ export class Room {
   /** When the last member left (ms since epoch), or null while someone is in the room. */
   emptySince: number | null = Date.now();
   private title = '';
+  /** The interviewer key: a secret held by the browser that created the room (and any co-interviewer). */
+  private hostKey: string | null = null;
   private queue: Promise<unknown> = Promise.resolve();
   private saves: Promise<unknown> = Promise.resolve();
 
@@ -45,7 +47,8 @@ export class Room {
         room.docs[doc].replay(ops);
       }
       if (saved.settings) room.settings = saved.settings;
-      room.lastRun = saved.lastRun;
+      room.lastRun = saved.lastRun ?? null;
+      room.hostKey = saved.hostKey ?? null;
       room.title = titleOf(room.docs.problem.text);
     }
     return room;
@@ -63,19 +66,29 @@ export class Room {
     return next;
   }
 
-  /** Adds a member and sends them the current document. Returns null if the room is full. */
-  join(ws: WebSocket, name: string, user?: string): Member | null {
+  /**
+   * Adds a member and sends them the current document. Returns null if the room is full.
+   * Whoever presents the room's interviewer key is an interviewer; everyone else is a candidate.
+   * A room's first key becomes its interviewer key: the creator's browser makes one when it creates the room.
+   */
+  join(ws: WebSocket, name: string, user?: string, key?: string): Member | null {
     if (this.members.size >= this.maxPeers) return null;
+    if (key && this.hostKey === null) {
+      this.hostKey = key;
+      this.saveRoom();
+    }
+    const role: Role = key && key === this.hostKey ? 'interviewer' : 'candidate';
     const used = new Set([...this.members.values()].map(m => m.color));
     const member: Member = {
       id: randomUUID().slice(0, 8),
       name: name.trim().slice(0, 32) || 'Guest',
       color: COLORS.find(c => !used.has(c)) ?? COLORS[0],
+      role,
       ws,
     };
     send(ws, {
       t: 'init', mode: this.mode, rev: this.doc.revision, doc: this.doc.text,
-      you: member.id, peers: [...this.members.values()].map(peerInfo),
+      you: member.id, role, peers: [...this.members.values()].map(peerInfo),
       problem: { rev: this.docs.problem.revision, doc: this.docs.problem.text },
       settings: this.settings, lastRun: this.lastRun,
     });
@@ -99,6 +112,7 @@ export class Room {
         if (id !== 'code' && id !== 'problem') throw new Error('bad document');
         // The naive baseline only changes how the code syncs; the problem statement always uses OT.
         if ((id === 'code' && this.mode !== 'ot') || !isOp(msg.op)) throw new Error('bad op');
+        if (id === 'problem' && member.role !== 'interviewer') throw new Error('only the interviewer can edit the problem');
         if (targetLength(msg.op) > MAX_DOC_CHARS) throw new Error('document too large');
         const doc = this.docs[id];
         const committed = doc.receive(msg.rev, msg.op);
@@ -129,7 +143,12 @@ export class Room {
         return;
       }
       case 'settings': {
-        this.settings = { ...this.settings, ...cleanSettings(msg.settings) };
+        const change = cleanSettings(msg.settings);
+        // Anyone may pick the language; the tests and the timer belong to the interviewer.
+        if (member.role !== 'interviewer' && ('tests' in change || 'timerStartedAt' in change)) {
+          throw new Error('only the interviewer can change the tests or the timer');
+        }
+        this.settings = { ...this.settings, ...change };
         this.broadcast(null, { t: 'settings', settings: this.settings });
         this.saveRoom();
         return;
@@ -151,7 +170,9 @@ export class Room {
    * the time it runs; two in flight at once could land out of order and an older one would win.
    */
   private saveRoom() {
-    this.saves = this.saves.then(() => this.save(this.store.saveRoom(this.id, this.settings, this.lastRun, this.title)));
+    this.saves = this.saves.then(() => this.save(this.store.saveRoom(this.id, {
+      settings: this.settings, lastRun: this.lastRun, title: this.title, hostKey: this.hostKey,
+    })));
   }
 
   /** Saving is best effort: if the database is down the room keeps working from memory, and says so in the log. */
@@ -168,7 +189,7 @@ export class Room {
   }
 }
 
-const peerInfo = ({ id, name, color }: Member): Peer => ({ id, name, color });
+const peerInfo = ({ id, name, color, role }: Member): Peer => ({ id, name, color, role });
 
 /** The problem's first non-empty line, without Markdown heading marks: the room's name in "Your rooms". */
 const titleOf = (problem: string) =>
