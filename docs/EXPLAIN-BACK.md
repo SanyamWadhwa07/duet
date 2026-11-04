@@ -160,3 +160,23 @@ At interview-sized documents, replaying 199 ops costs almost nothing (reload was
 
 **6. What does saving cost?**
 About 2–3 ms per edit at 40 editors. At 200 editors on the laptop, the database's commit rate becomes the bottleneck (p95 133–380 ms). The known fix is group commit: one insert for all ops waiting in a room's queue.
+
+---
+
+## Roles (Nov 4)
+
+**1. How does Duet know who the interviewer is, with no accounts?**
+- Creating a room makes a random interviewer key in that browser.
+- The first key a room sees becomes its interviewer key, saved with the room.
+- Joining with it makes you an interviewer; joining without it makes you a candidate.
+
+*Code:* `packages/web/src/App.tsx` (key), `packages/server/src/room.ts` (`join`).
+
+**2. What stops a candidate editing the problem with the browser console?**
+The server. The interface makes the problem editor read-only and hides the buttons, but every problem op and every tests/timer change is checked against the sender's role on the server, and refused if it's from a candidate. I tested it with a raw WebSocket client that skipped the interface: refused, and the problem stayed unchanged.
+
+**3. How do I add a second interviewer?**
+"Invite interviewer" copies `/r/<room>#host=<key>`. Browsers never send the part after `#` to a server, and the app saves the key and then removes it from the address bar, so it doesn't spread by accident.
+
+**4. Why does the database connection carry a certificate file?**
+Supabase signs its certificates with its own root CA, which Node doesn't trust. Plain `sslmode=require` fails, and switching verification off would allow a man-in-the-middle. Pinning Supabase's root (valid to 2031) keeps the connection both encrypted and verified. I proved it against the live pooler: pinned verifies, plain fails.

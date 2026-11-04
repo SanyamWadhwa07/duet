@@ -35,16 +35,26 @@ The code runner (Week 2) needs a VM that can run Docker containers. Render and V
 
 From then on, every push to `main` redeploys Vercel. **Render did not redeploy on push (2026-11-04)**, even with Auto-Deploy set to "On Commit". The Blueprint was created through Render's repo-URL link while its GitHub repo list was failing, so the GitHub push hook may not be wired. Until that's fixed (reconnect the repo under the service's Settings), redeploy server changes with **Manual Deploy → Deploy latest commit** on both services. Render only rebuilds when server code changes (`buildFilter` in `render.yaml`).
 
-## Saved rooms: the database (one-time, Sanyam)
+## Saved rooms: the database (Supabase)
 
-Rooms are saved to Postgres when the server has `DATABASE_URL`. A free Neon database is enough: it doesn't expire and it scales to zero when idle.
+Rooms are saved to Postgres when the server has `DATABASE_URL`.
 
-1. Sign in at neon.tech with GitHub, create a project, and pick the Singapore region (next to the Render server).
-2. Copy the connection string (`postgresql://…?sslmode=require`).
-3. In Render, open **duet-server → Environment**, add `DATABASE_URL` with that value, and save. Render redeploys.
-4. `https://duet-server.onrender.com/health` should now show `"saved": true`.
+**Already done (2026-11-04):**
+- A Supabase project `duet` exists in Southeast Asia (Singapore), the same region as the Render server.
+- Duet's tables live in their own `duet` schema, which Supabase's Data API doesn't serve.
+- For Supabase hosts, the server verifies the TLS certificate against Supabase's root CA, kept in the repo at `packages/server/certs/`.
 
-The server creates its tables on start. Only `duet-server` needs this; the naive baseline stays in memory.
+**One-time step (Sanyam, because it involves the database password):**
+1. In Supabase, open `duet`, then **Project Settings → Database → Reset database password**, and copy the new password.
+2. Build the connection string from the **Session pooler**. Render can't reach Supabase's direct connection, which is IPv6-only.
+   ```
+   postgresql://postgres.dhfcdzmdmfhcjuwghadm:<PASSWORD>@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres
+   ```
+   If the password contains special characters, percent-encode them. Don't add `sslmode`; the server sets TLS itself.
+3. In Render, open **duet-server → Environment**, add `DATABASE_URL` with that string, and save. Render redeploys.
+4. Open `https://duet-server.onrender.com/health`. It should show `"saved": true`.
+
+**Free-tier note.** Supabase pauses a free project after 7 days without activity. If Duet goes unused for a week, unpause `duet` in the Supabase dashboard; until then, rooms load as empty and saving fails softly (the live session still works).
 
 ## Things to know about the free tiers
 

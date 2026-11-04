@@ -14,6 +14,10 @@ The sync engine is my own operational transformation (OT) with a central server.
 
 *Two real browser windows, Asha (left) and Ravi (right), typing in the same room on the live site at the same time. Each sees the other's cursor in the other's colour, and both end up with the same text as the server. The GIF is recorded by `npm run demo` (`packages/bench/src/record-demo.ts`), which also checks that final match.*
 
+**Roles:** the person who creates a room is the interviewer. They write the problem (or upload it as `.md`), set the test cases and run the timer. Candidates join from the plain link, read the problem, write code and run it. The server enforces the roles, and "Invite interviewer" adds a co-interviewer.
+
+**Saved rooms:** with a database connected (Supabase Postgres), rooms survive restarts, and the front page lists "Your rooms".
+
 **What you can do in a room:**
 - 2–4 people edit the code and the problem statement together, each seeing the others' cursors.
 - Add test cases (input and expected output).

@@ -87,7 +87,7 @@ Sanyam asked for the MVP live today, ahead of the original Week 3 deploy.
 ## Week 3 (Nov 18–24): history, replay, accounts, deploy
 
 **Status (2026-11-04):** started early.
-- **Done:** the Postgres op log, snapshots and crash recovery (tested); "Your rooms" per browser; and Markdown problem upload.
+- **Done:** the Postgres op log, snapshots and crash recovery (tested); "Your rooms" per browser; Markdown problem upload; and interviewer/candidate roles enforced on the server.
 - **Next:** Google sign-in, the replay UI, and reconnect with exactly-once resend.
 
 **Ship**

@@ -193,3 +193,28 @@ Every run happens in its own Docker container. The flags and the attack each one
 - **Given up.** C++ needs a compiler, so it waits for the Docker runner. A browser sandbox is also weaker than the container limits in §10. The server runner stays the plan; this is the version that works today.
 
 **Reconnect.** A dropped socket rejoins with backoff (1, 2, 4, 8, then 10 s) and restarts from the server's copy. If an edit was in flight, the user is told it may be lost. Exactly-once resend with `(clientId, seq)` is still the Week 3 fix.
+
+## 14. Roles: interviewer and candidate (Nov 4)
+
+**Who is who.**
+- The browser that creates a room makes a random interviewer key and keeps it in localStorage.
+- The first key a room sees becomes its interviewer key, and it's saved with the room so it survives restarts.
+- Whoever joins with that key is an interviewer. Everyone else is a candidate.
+- A co-interviewer gets the key through an interviewer link (`/r/<room>#host=<key>`). The part after `#` is never sent to a server, and the app removes it from the address bar after saving it.
+
+**What each role may do.**
+
+| | Interviewer | Candidate |
+|---|---|---|
+| Edit the problem, upload `.md`, load the example | yes | no (reads it rendered) |
+| Add or edit test cases | yes | no (sees them and their results) |
+| Start or reset the timer | yes | no (sees the clock) |
+| Write code, pick the language, Run | yes | yes |
+
+**The server enforces it.** The interface hides what a candidate can't do, but the server is what decides. A problem op or a tests/timer change from a candidate is refused, and that connection is closed (`room.ts`, `handle`). A raw WebSocket client that skips the interface gets the same refusal (checked).
+
+**Why a key and not accounts.** Roles work today with no sign-up, which suits a mock interview between friends. Google sign-in, when added, can attach the key to an account so the interviewer role follows a person across devices.
+
+**Given up.** Anyone with the interviewer link is an interviewer, and the first key to reach a brand-new room claims it. Room IDs are random and the creator joins immediately, so in practice the creator's key wins.
+
+**Database transport (with §11).** Supabase signs its Postgres certificates with its own root CA, which Node doesn't trust by default. A plain `sslmode=require` fails ("self-signed certificate in certificate chain"), and turning verification off would allow interception. The server trusts exactly Supabase's root (`packages/server/certs/supabase-root-2021.crt`, valid to 2031), so the connection is encrypted and verified.
