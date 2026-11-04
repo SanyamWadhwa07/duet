@@ -1,0 +1,8 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "npm ci",
+  "buildCommand": "npm run build -w @duet/web",
+  "outputDirectory": "packages/web/dist",
+  "rewrites": [{ "source": "/r/(.*)", "destination": "/index.html" }]
+}
