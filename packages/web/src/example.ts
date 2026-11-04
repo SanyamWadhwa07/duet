@@ -19,12 +19,15 @@ Input
 Output
 - The two positions, separated by a space
 
-Example
-  4
-  2 7 11 15
-  9
-prints
-  0 1
+Example input
+
+\`\`\`
+4
+2 7 11 15
+9
+\`\`\`
+
+prints \`0 1\`.
 `;
 
 const TESTS: TestCase[] = [
