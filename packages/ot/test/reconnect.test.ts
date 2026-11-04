@@ -9,7 +9,7 @@ import { int, rng } from './random';
 const SCALE = Number(process.env.OT_SCALE ?? 1);
 const RUNS = 3_000 * SCALE;
 
-type Up = { revision: number; op: Op; seq: number };
+type Up = { revision: number; op: Op };
 type Down = { ack: true } | { op: Op };
 type Sim = { id: string; ot: OTClient; doc: string; online: boolean; up: Up[]; down: Down[] };
 
@@ -18,14 +18,13 @@ function run(seed: number) {
   const server = new ServerDoc();
   let next = 0x4e00; // each keystroke types a character no one else has typed
   const typed: string[] = [];
-  let duplicatesSeen = 0;
 
   const clients: Sim[] = [];
   const count = 2 + int(rand, 3);
   for (let k = 0; k < count; k++) {
     const sim = { id: `c${k}`, doc: '', online: true, up: [], down: [] } as unknown as Sim;
     sim.ot = new OTClient(0,
-      (revision, op, seq) => { if (sim.online) sim.up.push({ revision, op, seq }); }, // a send on a dead socket is lost
+      (revision, op) => { if (sim.online) sim.up.push({ revision, op }); }, // a send on a dead socket is lost
       op => { sim.doc = apply(sim.doc, op); });
     clients.push(sim);
   }
@@ -39,21 +38,21 @@ function run(seed: number) {
     c.ot.local(op);
   };
   const serverReceive = (c: Sim) => {
-    const { revision, op, seq } = c.up.shift()!;
-    const author = { client: c.id, seq };
-    if (server.isDuplicate(author)) { duplicatesSeen++; return; }
-    const committed = server.receive(revision, op, author);
+    const { revision, op } = c.up.shift()!;
+    const committed = server.receive(revision, op, c.id);
     for (const other of clients) if (other.online) other.down.push(other === c ? { ack: true } : { op: committed });
   };
   const clientReceive = (c: Sim) => {
     const msg = c.down.shift()!;
     if ('ack' in msg) c.ot.ack(); else c.ot.remote(msg.op);
   };
+  // Clearing `up` is the server ignoring whatever still arrives on a connection the page has replaced.
   const drop = (c: Sim) => { c.online = false; c.up = []; c.down = []; };
   const reconnect = (c: Sim) => {
     c.online = true;
     const missed = server.since(c.ot.revision)!;
-    c.ot.catchUp(missed.map(e => ({ op: e.op, mine: e.author?.client === c.id })));
+    c.ot.catchUp(missed.map(e => ({ op: e.op, mine: e.author === c.id })));
+    c.ot.resend();
   };
   const pick = (ok: (c: Sim) => boolean) => {
     const ready = clients.filter(ok);
@@ -82,7 +81,6 @@ function run(seed: number) {
     expect(c.doc).toBe(server.text);
   }
   expect([...server.text].sort()).toEqual([...typed].sort()); // every keystroke exactly once
-  expect(duplicatesSeen).toBe(0); // catch-up alone prevented every resend of a committed op
 }
 
 describe('reconnect', { timeout: 60_000 * SCALE }, () => {
@@ -92,11 +90,13 @@ describe('reconnect', { timeout: 60_000 * SCALE }, () => {
     }
   });
 
-  it('server ignores an op it already committed from the same client', () => {
-    const doc = new ServerDoc('ab');
-    doc.receive(0, [1, 'x', 1], { client: 'c1', seq: 1 });
-    expect(doc.isDuplicate({ client: 'c1', seq: 1 })).toBe(true);
-    expect(doc.isDuplicate({ client: 'c1', seq: 2 })).toBe(false);
-    expect(doc.isDuplicate({ client: 'c2', seq: 1 })).toBe(false);
+  it('since() lists what a client missed, with who sent it, and refuses revisions it no longer holds', () => {
+    const doc = new ServerDoc('ab', 5);
+    doc.receive(5, [1, 'x', 1], 'c1');
+    doc.receive(6, [3, 'y'], 'c2');
+    expect(doc.since(6)).toEqual([{ op: [3, 'y'], author: 'c2' }]);
+    expect(doc.since(7)).toEqual([]);
+    expect(doc.since(4)).toBeNull(); // before the snapshot: the client must start over
+    expect(doc.since(8)).toBeNull(); // ahead of the server: not a revision this copy has seen
   });
 });

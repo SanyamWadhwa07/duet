@@ -3,20 +3,15 @@ import { compose, transform, type Op } from './operation';
 /**
  * Client side of the protocol. At most one op is in flight (`outstanding`); local edits made
  * while waiting for its ack are composed into `buffer` and sent when the ack arrives.
- * Every op sent gets the next sequence number, so after a reconnect the server and client can tell
- * whether the op in flight was committed (its ack was lost) or never arrived.
  * The same class drives the browser editor and the load-test bots.
  */
 export class OTClient {
   outstanding: Op | null = null;
   buffer: Op | null = null;
-  /** Sequence number of `outstanding`. */
-  outstandingSeq = -1;
-  private seq = 0;
 
   constructor(
     public revision: number,
-    private send: (revision: number, op: Op, seq: number) => void,
+    private send: (revision: number, op: Op) => void,
     private applyRemote: (op: Op) => void,
   ) {}
 
@@ -26,8 +21,7 @@ export class OTClient {
   local(op: Op) {
     if (!this.outstanding) {
       this.outstanding = op;
-      this.outstandingSeq = ++this.seq;
-      this.send(this.revision, op, this.outstandingSeq);
+      this.send(this.revision, op);
     } else {
       this.buffer = this.buffer ? compose(this.buffer, op) : op;
     }
@@ -35,14 +29,8 @@ export class OTClient {
 
   /** The server committed our outstanding op. */
   ack() {
-    if (!this.outstanding) throw new Error('ack with no outstanding op');
-    this.revision++;
-    this.outstanding = this.buffer;
-    this.buffer = null;
-    if (this.outstanding) {
-      this.outstandingSeq = ++this.seq;
-      this.send(this.revision, this.outstanding, this.outstandingSeq);
-    }
+    this.committed();
+    if (this.outstanding) this.send(this.revision, this.outstanding);
   }
 
   /** Another client's op, as committed by the server. Transform it past our pending edits, then apply. */
@@ -55,19 +43,27 @@ export class OTClient {
 
   /**
    * After a reconnect: the ops the server committed since our `revision`, in order. One marked `mine`
-   * is our outstanding op whose ack was lost, so it counts as acked, not applied a second time.
-   * If the outstanding op is not among them it never reached the server, so it is sent again.
+   * is our outstanding op whose ack was lost, so it counts as committed, not applied a second time.
+   * Sends nothing; the caller then calls `resend()`. (Whatever was in flight on the old connection is
+   * ignored by the server, so the outstanding op is either in `entries` or was never committed.)
    */
   catchUp(entries: { op: Op; mine: boolean }[]) {
-    let resend = this.outstanding !== null;
     for (const entry of entries) {
-      if (entry.mine && this.outstanding) {
-        this.ack();
-        resend = false; // ack() already sent the buffer, if any, as the new outstanding op
-      } else {
-        this.remote(entry.op);
-      }
+      if (entry.mine && this.outstanding) this.committed();
+      else this.remote(entry.op);
     }
-    if (resend && this.outstanding) this.send(this.revision, this.outstanding, this.outstandingSeq);
+  }
+
+  /** Sends the op in flight, if any, based on the current revision: on a new connection after `catchUp`. */
+  resend() {
+    if (this.outstanding) this.send(this.revision, this.outstanding);
+  }
+
+  /** Our outstanding op is committed; the buffered edits, if any, become the next op in flight. */
+  private committed() {
+    if (!this.outstanding) throw new Error('ack with no outstanding op');
+    this.revision++;
+    this.outstanding = this.buffer;
+    this.buffer = null;
   }
 }
