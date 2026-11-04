@@ -1,11 +1,12 @@
 import { createServer } from 'node:http';
-import { WebSocketServer } from 'ws';
+import { WebSocketServer, type WebSocket } from 'ws';
 import type { ClientMsg, SyncMode } from '@duet/ot';
 import { Room, send, type Member } from './room';
 
 const PORT = Number(process.env.PORT ?? 4000);
 const MODE: SyncMode = process.env.DUET_SYNC === 'naive' ? 'naive' : 'ot';
 const MAX_PEERS = Number(process.env.DUET_MAX_PEERS ?? 4);
+const HEARTBEAT_MS = Number(process.env.DUET_HEARTBEAT_MS ?? 30_000);
 const ROOM_ID = /^[\w-]{1,64}$/;
 
 const rooms = new Map<string, Room>();
@@ -26,9 +27,23 @@ const http = createServer((req, res) => {
 
 const wss = new WebSocketServer({ server: http, path: '/ws', maxPayload: 1 << 20 });
 
+// Heartbeat: ping every socket each interval. One that hasn't answered the previous ping is gone
+// (laptop lid closed, network dropped without a FIN) and is terminated, which frees its room slot
+// and removes its cursor. The pings also stop hosting proxies from closing idle connections.
+const alive = new WeakSet<WebSocket>();
+setInterval(() => {
+  for (const ws of wss.clients) {
+    if (!alive.has(ws)) { ws.terminate(); continue; }
+    alive.delete(ws);
+    ws.ping();
+  }
+}, HEARTBEAT_MS);
+
 wss.on('connection', ws => {
   let room: Room | undefined;
   let member: Member | null = null;
+  alive.add(ws);
+  ws.on('pong', () => alive.add(ws));
 
   const fail = (message: string) => {
     send(ws, { t: 'error', message });
