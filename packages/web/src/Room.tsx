@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import DOMPurify from 'dompurify';
+import { marked } from 'marked';
 import type { Language, RunReport, TestCase, TestResult } from '@duet/ot';
 import { monaco } from './monaco';
 import { RoomSession, type RoomState } from './session';
@@ -31,6 +33,10 @@ monaco.editor.defineTheme('duet', {
   colors: { 'editor.background': '#1E2024', 'editor.lineHighlightBackground': '#25282E', 'editorLineNumber.foreground': '#5B616B' },
 });
 
+/** Problem statements are Markdown written by anyone in the room, so the HTML is sanitised. */
+const renderMarkdown = (text: string) => DOMPurify.sanitize(marked.parse(text, { async: false }) as string);
+const MAX_UPLOAD_BYTES = 100_000;
+
 /** Replaces a model's text as a normal edit, so it is sent to the room like typing. */
 const setText = (model: monaco.editor.ITextModel, text: string) =>
   model.pushEditOperations([], [{ range: model.getFullModelRange(), text }], () => null);
@@ -41,6 +47,9 @@ export function Room({ room, name }: { room: string; name: string }) {
   const session = useRef<RoomSession | null>(null);
   const [state, setState] = useState<RoomState>({ status: 'connecting', you: '', peers: [], settings: null, lastRun: null, notice: null });
   const [empty, setEmpty] = useState({ code: true, problem: true });
+  const [problemText, setProblemText] = useState('');
+  const [preview, setPreview] = useState(false);
+  const upload = useRef<HTMLInputElement>(null);
   const [tab, setTab] = useState<'tests' | 'output'>('tests');
   const [running, setRunning] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -55,7 +64,10 @@ export function Room({ room, name }: { room: string; name: string }) {
     });
     const s = new RoomSession(code, problem, room, name, patch => setState(prev => ({ ...prev, ...patch })));
     session.current = s;
-    const track = () => setEmpty({ code: s.code.model.getValueLength() === 0, problem: s.problem.model.getValueLength() === 0 });
+    const track = () => {
+      setEmpty({ code: s.code.model.getValueLength() === 0, problem: s.problem.model.getValueLength() === 0 });
+      setProblemText(s.problem.model.getValue());
+    };
     const listeners = [s.code.model.onDidChangeContent(track), s.problem.model.onDidChangeContent(track)];
     code.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => runRef.current());
     document.fonts.ready.then(() => monaco.editor.remeasureFonts());
@@ -67,6 +79,10 @@ export function Room({ room, name }: { room: string; name: string }) {
   useEffect(() => {
     if (settings && session.current) monaco.editor.setModelLanguage(session.current.code.model, settings.language === 'cpp' ? 'cpp' : settings.language);
   }, [settings?.language]);
+
+  // Joining a room that already has a problem shows it rendered; an empty one opens the editor.
+  useEffect(() => { if (state.status === 'connected') setPreview(session.current!.problem.model.getValueLength() > 0); }, [state.status]);
+  const problemHtml = useMemo(() => (preview ? renderMarkdown(problemText) : ''), [preview, problemText]);
 
   // A new run (yours or someone else's) opens the output.
   useEffect(() => { if (state.lastRun) setTab('output'); }, [state.lastRun?.at]);
@@ -108,8 +124,16 @@ export function Room({ room, name }: { room: string; name: string }) {
   const loadExample = () => {
     const s = session.current!;
     if (s.problem.model.getValueLength() === 0) setText(s.problem.model, EXAMPLE.problem);
+    setPreview(true);
     s.updateSettings({ tests: EXAMPLE.tests });
     if (settings && isStarter(s.code.model.getValue())) setText(s.code.model, EXAMPLE.starters[settings.language]);
+  };
+
+  const uploadProblem = async (file: File) => {
+    if (file.size > MAX_UPLOAD_BYTES) return setToast('That file is over 100 KB. Upload just the problem statement.');
+    setText(session.current!.problem.model, (await file.text()).replace(/\r\n/g, '\n'));
+    setPreview(true);
+    setToast(`Loaded ${file.name}. Ctrl+Z in the editor undoes it.`);
   };
 
   const copyInvite = async () => {
@@ -147,11 +171,18 @@ export function Room({ room, name }: { room: string; name: string }) {
         <section className="pane problem-pane" aria-label="Problem">
           <div className="pane-head">
             <h2>Problem</h2>
-            {empty.problem && connected && <button className="ghost" onClick={loadExample}>Load an example</button>}
+            <div className="pane-actions">
+              {!empty.problem && <button className="ghost" onClick={() => setPreview(p => !p)}>{preview ? 'Edit' : 'Preview'}</button>}
+              <button className="ghost" disabled={!connected} onClick={() => upload.current?.click()}>Upload .md</button>
+              <input ref={upload} type="file" accept=".md,.markdown,.txt,text/markdown,text/plain" hidden
+                onChange={e => { const f = e.target.files?.[0]; if (f) uploadProblem(f); e.target.value = ''; }} />
+              {empty.problem && connected && <button className="ghost" onClick={loadExample}>Load an example</button>}
+            </div>
           </div>
           <div className="editor-wrap">
-            <div className="editor-host" ref={problemHost} />
-            {empty.problem && <p className="placeholder">Paste or write the problem here. Everyone in the room can edit it.</p>}
+            <div className="editor-host" ref={problemHost} style={{ visibility: preview && !empty.problem ? 'hidden' : 'visible' }} />
+            {preview && !empty.problem && <article className="markdown" dangerouslySetInnerHTML={{ __html: problemHtml }} />}
+            {empty.problem && <p className="placeholder">Paste, write or upload (.md) the problem here. Everyone in the room can edit it.</p>}
           </div>
         </section>
 

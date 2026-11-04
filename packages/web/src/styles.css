@@ -101,7 +101,18 @@ body:has(.paper) { background: var(--paper); }
 .console { grid-area: console; border-top: 1px solid var(--line); }
 .pane-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px 0; }
 .pane-head h2 { font-family: var(--display); font-size: 16px; font-weight: 600; margin: 0; }
+.pane-actions { display: flex; gap: 8px; }
 .editor-wrap { position: relative; flex: 1; min-height: 0; }
+.markdown { position: absolute; inset: 0; overflow: auto; padding: 6px 20px 24px; font-size: 15px; line-height: 1.6; max-width: 72ch; }
+.markdown h1, .markdown h2, .markdown h3 { font-family: var(--display); font-weight: 600; line-height: 1.2; margin: 18px 0 8px; }
+.markdown h1 { font-size: 24px; } .markdown h2 { font-size: 19px; } .markdown h3 { font-size: 16px; }
+.markdown p, .markdown ul, .markdown ol { margin: 0 0 12px; }
+.markdown code { font-family: var(--code); font-size: 13px; background: #2A2D33; padding: 1px 5px; border-radius: 4px; }
+.markdown pre { background: #17191C; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; overflow: auto; }
+.markdown pre code { background: none; padding: 0; }
+.markdown a { color: #74C0FC; }
+.markdown table { border-collapse: collapse; margin-bottom: 12px; }
+.markdown th, .markdown td { border: 1px solid var(--line); padding: 4px 10px; }
 .editor-host { position: absolute; inset: 0; }
 .placeholder { position: absolute; top: 14px; left: 18px; right: 18px; margin: 0; color: #6B717C; pointer-events: none; font-size: 14px; }
 .placeholder.code { left: 64px; font-family: var(--code); font-size: 13px; }
