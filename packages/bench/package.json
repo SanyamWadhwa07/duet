@@ -1,0 +1,14 @@
+{
+  "name": "@duet/bench",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "bench": "tsx src/bots.ts",
+    "e2e": "tsx src/e2e.ts"
+  },
+  "dependencies": {
+    "@duet/ot": "*",
+    "playwright-core": "^1.49.0",
+    "ws": "^8.18.0"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "@duet/server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "dev": "tsx watch src/index.ts"
+  },
+  "dependencies": {
+    "@duet/ot": "*",
+    "ws": "^8.18.0"
+  }
+}
