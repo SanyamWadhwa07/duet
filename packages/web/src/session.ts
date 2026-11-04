@@ -9,6 +9,11 @@ type Listeners = { peers(peers: Peer[]): void; status(status: string): void };
 // so the build is given the server's address. In development Vite proxies /ws on the same origin.
 const WS_URL: string = import.meta.env.VITE_WS_URL || `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
 
+/** Starts waking a sleeping server (free hosting tiers) while the visitor is still typing their name. */
+export function wakeServer() {
+  fetch(WS_URL.replace(/^ws/, 'http').replace(/\/ws$/, '/health'), { mode: 'no-cors' }).catch(() => {});
+}
+
 export class RoomSession {
   mode: SyncMode = 'ot';
   client: OTClient | null = null;

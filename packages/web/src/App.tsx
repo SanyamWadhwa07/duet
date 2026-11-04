@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Peer } from '@duet/ot';
 import { monaco } from './monaco';
-import { RoomSession } from './session';
+import { RoomSession, wakeServer } from './session';
 
 const roomFromPath = () => location.pathname.match(/^\/r\/([\w-]{1,64})$/)?.[1] ?? null;
 
@@ -9,6 +9,7 @@ export function App() {
   const room = roomFromPath();
   const [name, setName] = useState(() => localStorage.getItem('duet:name') ?? '');
   const [entered, setEntered] = useState(false);
+  useEffect(wakeServer, []);
 
   if (room && entered) return <RoomPage room={room} name={name} />;
 
