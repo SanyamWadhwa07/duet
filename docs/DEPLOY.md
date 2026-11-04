@@ -1,5 +1,10 @@
 # Deploying Duet
 
+**Live since 2026-11-04:**
+- Front end: https://duet-six-rose.vercel.app
+- Server: https://duet-server.onrender.com/health
+- Naive baseline server: https://duet-server-naive.onrender.com/health
+
 The MVP runs on three pieces:
 
 | Piece | Host | Config |

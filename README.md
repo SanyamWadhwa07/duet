@@ -4,7 +4,13 @@ A live coding-interview room. 2–4 people open a room link and edit one file to
 
 The sync engine is my own operational transformation (OT) with a central server. No Yjs, ShareDB or Automerge. See [docs/DESIGN.md](docs/DESIGN.md) for every decision and [docs/METRICS.md](docs/METRICS.md) for every number, with how each was measured.
 
-**Status:** Week 1 of 3 is done (sync core, rooms, presence, Monaco binding). The plan is in [PLAN.md](PLAN.md).
+**Live:** https://duet-six-rose.vercel.app (create a room, open the link on a second device). The server runs on Render's free tier, so the first visit after a quiet spell can take about a minute while it wakes.
+
+![Two browsers editing one Duet room on the live site](docs/demo.gif)
+
+*Two real browser windows, Asha (left) and Ravi (right), typing in the same room on the live site at the same time. Each sees the other's cursor in the other's colour, and both end up with the same text as the server. The GIF is recorded by `npm run demo` (`packages/bench/src/record-demo.ts`), which also checks that final match.*
+
+**Status:** Week 1 (sync core, rooms, presence, Monaco binding) is done and deployed. Weeks 2–3 (sandboxed runner, op log and replay) are next. The plan is in [PLAN.md](PLAN.md).
 
 ## Layout
 
@@ -43,6 +49,7 @@ npm test                           # unit + randomized convergence property test
 OT_SCALE=10 npm test               # 10x soak run of the property tests
 npm run e2e                        # exit test: browser tabs type concurrently, must end identical (needs server + web running; uses installed Edge)
 npm run bench                      # bot load test (see the header of packages/bench/src/bots.ts for settings)
+npm run demo                       # record docs/demo.gif from the live site (uses installed Edge and ffmpeg)
 ```
 
 ## References and credits

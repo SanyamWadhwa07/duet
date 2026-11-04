@@ -59,6 +59,8 @@ Every number that may go on the resume is recorded here with its method, setup a
 
 **Does the test catch real bugs?** With the sort removed from `changesToOp` (a real multi-cursor bug), the 2-tab run **FAILED**: the tabs ended at 18 and 28 characters and the server rejected the bad op.
 
+**Live check (2026-11-04):** `npm run demo` ran against the deployed site. Two headless Edge windows typed real keystrokes into one room at the same time; at the end, both editors and the Render server held identical text (revision 220, 339 characters). The recording is `docs/demo.gif`.
+
 **Manual check:** two tabs ("Asha" and "Ravi") typed by hand ended identical to the server (revision 4). Each tab showed the other's caret and selection in that peer's colour.
 
 ## 3. Op round-trip under load
