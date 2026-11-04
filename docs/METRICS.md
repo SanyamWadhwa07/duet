@@ -113,24 +113,54 @@ Every number that may go on the resume is recorded here with its method, setup a
 - **OT.** Lost **0 of 391,414 keystrokes** across every OT run in sections 3 and 4.
 - **Fairness.** Both bots typing at the same time for 30 s is a worst case. In a real interview, one person types most of the time, so real-world loss will be lower than these figures.
 
-## 5. Runner (Week 2: not measured yet)
+## 5. Deployed servers over a real network (2026-11-04)
+
+**Setup:**
+- **Servers:** `duet-server` (OT) and `duet-server-naive` on Render's free tier (Docker, Singapore, 0.1 CPU and 512 MB each), deployed from commit `f638002`.
+- **Bots:** run from the dev laptop over its normal internet connection, through Render's TLS proxy (`wss://…onrender.com/ws`). No simulated delay (`LATENCY_MS=0`).
+- **Workload:** the same as sections 3 and 4.
+- **Network baseline:** each run first times 20 WebSocket ping frames. Pings get answered without running any Duet code, so the gap between op round-trip and ping is the server's own share plus proxy noise.
+
+**OT vs naive, 2 people, 30 s, 3 runs each:**
+
+| Mode | Keystrokes | Ping p50 / p95 ms | Op round-trip p50 / p95 ms | Bytes/keystroke | Lost keystrokes | Runs that diverged |
+|---|---:|---|---|---:|---:|---:|
+| **OT** | 1,151 | 81.6–92.9 / 83.6–95.2 | 89.7–100.3 / 98.9–105.3 | **80.6–80.8** | **0 (0%)** | 0 / 3 |
+| naive | 1,145 | 81.7–93.0 / 83.5–95.5 | (no acks in naive mode) | 4,313–4,325 (mean 4,320) | 564 (**49.3%**) | 2 / 3 |
+
+Over a real ~90 ms network, the naive baseline lost **about half** of all keystrokes, and in 2 of 3 runs the two people ended with different code. OT lost none and used about **54× fewer bytes per keystroke**. An OT op's round-trip is the network ping plus about 1–8 ms at p50.
+
+**Load on the free instance (OT, 4 bots per room, 60 s):**
+
+| Bots × rooms | Ops/s offered | Ping p95 ms | Op p50 ms | Op p95 ms | Op p99 ms | Max ms | Lost | Diverged rooms |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 40 × 10 | 264 | 97.7 | 94.6 | **105.2** | 112.5 | 315.9 | 0 | 0 |
+| 100 × 25 | 661 | 97.8 | 101.1 | 177.8 | 352.4 | 8,839 | 0 | 0 |
+
+- **40 bots:** the free instance adds single-digit milliseconds over the network at p95.
+- **100 bots:** the 0.1-CPU instance saturates. The tail grows (p99 352 ms, one op took 8.8 s), but nothing was lost and no room diverged.
+- **Composing.** Under that latency, keystrokes typed while an op is in flight get composed: 38,088 ops for 39,677 keystrokes, and 137.5 B/keystroke instead of 142.
+- **What this measures.** These figures describe the free instance, not the code's ceiling. Section 3 measures the same code at 2,607 ops/s on a laptop core.
+
+**OT across every run in sections 3–5:** 0 of 448,059 keystrokes lost.
+
+## 6. Runner (Week 2: not measured yet)
 
 - Cold start vs warm-pool start (p50/p95): *pending*
 - Runs per second at a fixed worker count: *pending*
 - Hostile-program suite (fork bomb, infinite loop, memory bomb, network call, file write): *pending*
 
-## 6. Persistence and usage (Week 3: not measured yet)
+## 7. Persistence and usage (Week 3: not measured yet)
 
 - Recovery time vs ops since the last snapshot: *pending*
-- p95 op round-trip on the VPS over a real network: *pending*
 - Sessions held and unique users: *pending (real usage only)*
 
 ---
 
-## Draft resume lines (Week 1 numbers only)
+## Draft resume lines
 
-Each line uses only numbers from this file. Re-check them after the Week 3 VPS run.
+Each line uses only numbers from this file.
 
 - Built an operational-transformation sync engine (TypeScript; insert/retain/delete ops, a central server ordering ops by revision) with no CRDT library. It is verified by 30,000 seeded randomized convergence tests on every run (300,000 in a soak run), all passing.
-- Cut sync traffic about 56× per keystroke vs whole-file rebroadcast (80.7 B vs 4,489 B on a 2 KB file), and lost 0 of 391K keystrokes vs 56% lost by the rebroadcast baseline under 50 ms simulated latency.
-- Served 200 concurrent bot editors in 50 rooms (about 1,290 ops/s) on one Node `ws` process at p95 op round-trip of 2.6–3.0 ms (localhost).
+- On the deployed server (Render, Singapore), over a real ~90 ms network, two people typing at once lost 0 keystrokes vs 49% lost by a whole-file-rebroadcast baseline (the Code-Sync approach), using about 54× fewer bytes per keystroke (80.7 B vs 4,320 B on a 2 KB file).
+- Served 200 concurrent bot editors in 50 rooms (about 1,290 ops/s) on one Node `ws` process at p95 op round-trip of 2.6–3.0 ms (localhost). On the deployed free instance, 40 editors saw p95 105 ms against a 98 ms network ping.

@@ -1,0 +1,33 @@
+{
+  "mode": "naive",
+  "target": "duet-server-naive",
+  "rooms": 1,
+  "botsPerRoom": 2,
+  "bots": 2,
+  "seconds": 30,
+  "rateMs": 150,
+  "latencyMs": 0,
+  "starterChars": 2000,
+  "avgFinalChars": 2193,
+  "keystrokes": 384,
+  "roundTripMs": null,
+  "networkPingMs": {
+    "samples": 20,
+    "p50": 81.72,
+    "p95": 83.54
+  },
+  "wireBytes": 1659810,
+  "bytesPerKeystroke": 4322.4,
+  "lostKeystrokes": 191,
+  "lostPercent": 49.74,
+  "divergedRooms": 1,
+  "botEventLoopLagP99Ms": 19.07,
+  "machine": {
+    "cpu": "13th Gen Intel(R) Core(TM) i5-13500H",
+    "cores": 16,
+    "memGB": 16,
+    "node": "v22.17.1",
+    "os": "win32"
+  },
+  "date": "2026-11-04T11:23:26.264Z"
+}
