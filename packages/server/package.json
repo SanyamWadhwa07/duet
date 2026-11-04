@@ -3,11 +3,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "tsx src/index.ts",
+    "start": "node --import tsx src/index.ts",
     "dev": "tsx watch src/index.ts"
   },
   "dependencies": {
     "@duet/ot": "*",
+    "tsx": "^4.23.15",
     "ws": "^8.18.0"
   }
 }
