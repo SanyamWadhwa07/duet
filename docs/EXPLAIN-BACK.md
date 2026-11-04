@@ -117,3 +117,20 @@ Every run starts a fresh Docker container with network, memory, process and CPU 
 
 **9. What does CI check on every push?**
 Typecheck of all four packages, the unit tests plus the 30,000 randomized convergence cases, and a build of the server Docker image. *File:* `.github/workflows/ci.yml`.
+
+---
+
+## Interview room (Nov 4)
+
+**1. Why does a coding interview need a shared editor, if the candidate does all the typing?**
+The interviewer is there to watch the candidate *think*, not just to read the final answer. They see the approach take shape and the mistakes and fixes as they happen. They can also step in without taking over: add a test case, edit the problem with a follow-up, or put their cursor on a line ("look here"). Both people see the same run output. Screen sharing gives the interviewer a video; Duet gives them the code.
+
+**2. Why OT, if one person types most of the time?**
+- Most of the time one person types. But the moments when both type (the interviewer adds a comment or a test while the candidate is typing) are exactly when whole-file sync silently loses someone's edit.
+- The op stream is also what makes replay possible: a keystroke-level history of how the solution grew.
+
+**3. Where does the code run, and what stops `while True: pass`?**
+In the browser of whoever presses Run, inside a Web Worker. After 5 s the worker is killed. Python runs on Pyodide (CPython in WebAssembly). *Code:* `packages/web/src/runner.ts`. *Doc:* `docs/DESIGN.md` §13.
+
+**4. Why are test cases last-writer-wins and not OT?**
+They're small, they're edited rarely, and they're saved when a field loses focus. Replacing the whole list is simple, and a lost edit to a test is easy to see and redo. The code and the problem are long, continuous text, so they get OT.

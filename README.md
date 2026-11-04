@@ -14,7 +14,14 @@ The sync engine is my own operational transformation (OT) with a central server.
 
 *Two real browser windows, Asha (left) and Ravi (right), typing in the same room on the live site at the same time. Each sees the other's cursor in the other's colour, and both end up with the same text as the server. The GIF is recorded by `npm run demo` (`packages/bench/src/record-demo.ts`), which also checks that final match.*
 
-**Status:** Week 1 (sync core, rooms, presence, Monaco binding) is done and deployed. Weeks 2–3 (sandboxed runner, op log and replay) are next. The plan is in [PLAN.md](PLAN.md).
+**What you can do in a room:**
+- 2–4 people edit the code and the problem statement together, each seeing the others' cursors.
+- Add test cases (input and expected output).
+- Run JavaScript or Python against them in the browser. Everyone sees the result.
+- Keep time with a shared interview timer.
+- Start from an example problem with one click.
+
+**Status:** Week 1 (the sync core) and the interview room are done and deployed. Next are the server-side Docker runner (C++ and stronger isolation), then the op log with replay and reconnect without loss. The plan is in [PLAN.md](PLAN.md).
 
 ## Layout
 

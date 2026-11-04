@@ -164,3 +164,19 @@ Every run happens in its own Docker container. The flags and the attack each one
 **Memory.** Until the Week 3 op log, everything lives in memory. A room nobody has been in for 30 minutes is dropped, and live rooms are capped at 1,000.
 
 **Free-tier cost.** The service sleeps after ~15 idle minutes, and a sleep or redeploy forgets every room. The landing page pings `/health` on load so the server is already starting while the visitor types a name. Postgres (§11) removes the forgetting.
+
+## 13. The interview room (Nov 4, after the MVP deploy)
+
+**What a room holds.**
+- **Two OT documents.** The code and the problem statement both use the same engine. Messages for the problem carry `doc: 'problem'`. Code messages are unchanged, so the benchmarks still compare.
+- **Small shared settings:** language, test cases and the interview timer. These use last writer wins, because two people rarely edit them at the same moment, and a whole-value replace is easy to reason about.
+- **The last run report,** so someone joining late sees the result.
+
+**Why code runs in the browser for now.**
+- **The constraint.** The Docker runner (§10) needs a VM, and the free hosts can't run it. Without a Run button, though, Duet isn't usable for an interview.
+- **What it does.** JavaScript runs in a Web Worker, and Python runs on Pyodide (CPython compiled to WebAssembly) in a worker. The code runs in the browser of whoever presses Run.
+- **Limits.** Each run has a 5 s time limit (the worker is killed) and 64 KB of output.
+- **Trust model.** The code is visible in the shared editor before anyone runs it. It runs with the presser's own browser permissions, has no access to the page, and can't touch the server, so a fork bomb or memory bomb can at worst crash that person's tab, never the room.
+- **Given up.** C++ needs a compiler, so it waits for the Docker runner. A browser sandbox is also weaker than the container limits in §10. The server runner stays the plan; this is the version that works today.
+
+**Reconnect.** A dropped socket rejoins with backoff (1, 2, 4, 8, then 10 s) and restarts from the server's copy. If an edit was in flight, the user is told it may be lost. Exactly-once resend with `(clientId, seq)` is still the Week 3 fix.
