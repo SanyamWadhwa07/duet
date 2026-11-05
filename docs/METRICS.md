@@ -59,7 +59,9 @@ Every number that may go on the resume is recorded here with its method, setup a
 
 **Does the test catch real bugs?** With the sort removed from `changesToOp` (a real multi-cursor bug), the 2-tab run **FAILED**: the tabs ended at 18 and 28 characters and the server rejected the bad op.
 
-**Live check (2026-11-04):** `npm run demo` ran against the deployed site. Two headless Edge windows typed real keystrokes into one room at the same time; at the end, both editors and the Render server held identical text (revision 220, 339 characters). The recording is `docs/demo.gif`.
+**Live check (2026-11-04):** `npm run demo` ran against the deployed site. Two headless Edge windows typed real keystrokes into one room at the same time; at the end, both editors and the Render server held identical text (revision 220, 339 characters).
+
+**Live check (2026-11-05):** the mock-interview version of `npm run demo` (interviewer loads a problem, candidate writes the solution while the interviewer types a note, both see the tests pass) ended with both editors and the Render server identical (revision 148, 344 characters). The recording is `docs/demo.gif`.
 
 **Manual check:** two tabs ("Asha" and "Ravi") typed by hand ended identical to the server (revision 4). Each tab showed the other's caret and selection in that peer's colour.
 
@@ -236,6 +238,8 @@ The first run showed the problem, language and code restored but **the 4 test ca
   3. *Outage:* every connection attempt fails for 2.5 s while both tabs type.
 - **Result:** all 3 pass. After each case both tabs and the server held the same text, with every marker typed exactly once and no other text. B stayed editable while offline and showed no lost-edits notice.
 
+**Live check (2026-11-05, one-off script, not in the repo):** the same 3 cases on the deployed site (Vercel front end, Render server, Supabase Postgres), typed with the keyboard and read off the screen. All 3 passed: each marker appeared exactly once, both tabs matched the server, and no notice showed.
+
 **Lost history** (one-off script, not in the repo): a server with no database was restarted, refilled to revision 8 while B was offline at revision 6, and then B rejoined. B's check found the catch-up didn't fit, B started over from the server's copy and showed the notice, and A, B and the server then agreed.
 
 **Regression on the same code:**
@@ -265,21 +269,27 @@ The first run showed the problem, language and code restored but **the 4 test ca
 - An unknown room showed "wasn't saved".
 - A raw client sending an op with `\r` was refused.
 
+**Live check (2026-11-05):** after the live reconnect check above, that room's replay page on the deployed site opened on the final text and played back at 16× to the same text (21 code ops, 1 problem op).
+
 **Bugs these checks found before shipping:** both were line endings (DESIGN §16). The replay editor defaulted to `\r\n` on Windows, and `setValue('')` reset it again on "Play from the start".
 
 ---
 
-## Resume lines (SDE resume v3.2, 2026-11-04)
+## Resume lines (SDE resume v3.5, 2026-11-05)
 
 These are the Duet bullets as they appear on the resume. Each number points to the section of this file that measured it.
 
-1. "Built a live coding-interview room where 2–4 people edit one file, on its own operational-transformation sync engine (no CRDT library) that **30,000** randomized tests check on every push."
+1. "Built a live coding-interview room where 2–4 people edit one file, on its own operational-transformation sync engine (no CRDT library) that **30,000** randomized test cases check on every push."
    - 30,000 = 10,000 TP1 + 10,000 compose + 10,000 simulations, run by `npm test` in CI on every push (§1, `.github/workflows/ci.yml`).
-2. "Measured the live deploy against a whole-file re-broadcast baseline: with two people typing at once over a 90 ms network, re-broadcast lost **49%** of keystrokes and Duet lost **none**, while sending **54x** fewer bytes per keystroke."
+2. "Benchmarked the live deploy against whole-file re-broadcast with two people typing at once over a 90 ms network, where re-broadcast lost **49%** of keystrokes and Duet lost **none** while sending **54x** fewer bytes per keystroke."
    - §5, both servers deployed, 3 runs each. Ping p50 was 82–93 ms.
    - Lost keystrokes: re-broadcast lost 564 of 1,145 (49.3%); OT lost 0 of 1,151.
    - Bytes per keystroke: 4,320 vs 80.7, which is 53.5×.
-3. "Load-tested the Node WebSocket server with 200 bot editors in 50 rooms (**1,300 edits/s** at p95 under 3 ms on a laptop) and deployed it in Docker on Render with a Vercel front end."
-   - §3, 3 runs at 1,292–1,293 ops/s with p95 2.64–2.97 ms on localhost.
+3. "Saved each edit to a PostgreSQL log, so rooms **survive a server crash**, dropped connections resume with **no edit lost or doubled**, and interviewers can replay any session edit by edit."
+   - Crash: §7, server killed with SIGKILL and restarted, identical text and revision in 8 of 8 runs.
+   - Reconnect: §9, 3,000 randomized runs per `npm test` (in CI), the browser test's 3 cases, and the same 3 cases on the live site.
+   - Replay: §10, opens on and plays back to the exact final text.
 
-**Not on the resume until built and measured:** the sandboxed runner (cold vs warm start, hostile suite), replay, and Postgres recovery.
+**Earlier line 3** (resume v3.2, replaced in v3.5): "Load-tested the Node WebSocket server with 200 bot editors in 50 rooms (**1,300 edits/s** at p95 under 3 ms on a laptop)". §3, 3 runs at 1,292–1,293 ops/s with p95 2.64–2.97 ms on localhost.
+
+**Not on the resume until built and measured:** the sandboxed runner (cold vs warm start, hostile suite).
