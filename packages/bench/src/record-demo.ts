@@ -1,6 +1,8 @@
-// Records the README demo: two real browser windows ("Asha" and "Ravi") in one room on the live site,
-// typing at the same time with real keystrokes. Writes the side-by-side video as docs/demo.gif and
-// checks that both editors and the server end with the same text.
+// Records the README demo: a mock interview on the live site, in two real browser windows side by side.
+// Asha (the interviewer) starts a named session; Ravi joins from the plain link as the candidate. Asha
+// loads a problem, Ravi writes the solution while Asha adds a note at the top of the same file, and Ravi
+// runs the tests, which both of them see pass. Writes docs/demo.gif and checks that both editors and the
+// server end with the same text.
 //   WEB_URL=https://duet-six-rose.vercel.app SERVER_URL=https://duet-server.onrender.com npm run demo
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync } from 'node:fs';
@@ -23,21 +25,17 @@ const open = async () => {
 const asha = await open();
 const ravi = await open();
 
-const enterRoom = async (page: Page, name: string, url: string) => {
-  await page.goto(url);
-  await page.fill('input', name);
-  await page.press('input', 'Enter');
-  await page.waitForSelector('text=connected');
-  await page.click('.code-pane .view-lines');
-};
-await enterRoom(asha.page, 'Asha', WEB);
+// Asha creates the room (and becomes its interviewer); Ravi opens the plain link (a candidate).
+await asha.page.goto(WEB);
+await asha.page.fill('#name', 'Asha');
+await asha.page.fill('#session', 'Mock interview: Ravi');
+await asha.page.press('#name', 'Enter');
+await asha.page.waitForSelector('text=Connected', { timeout: 90_000 });
 const roomUrl = asha.page.url();
-await enterRoom(ravi.page, 'Ravi', roomUrl);
-// The demo code is JavaScript: switch the room's language, then clear the starter comment it inserts.
-await asha.page.selectOption('select[aria-label="Language"]', 'javascript');
-await asha.page.click('.code-pane .view-lines');
-await asha.page.keyboard.press('Control+A');
-await asha.page.keyboard.press('Delete');
+await ravi.page.goto(roomUrl);
+await ravi.page.fill('#name', 'Ravi');
+await ravi.page.press('#name', 'Enter');
+await ravi.page.waitForSelector('text=Connected');
 console.log(`room ${roomUrl}`);
 
 // Screenshot both windows together, as fast as they come (about 10 per second), until stopped.
@@ -52,41 +50,57 @@ const recorder = (async () => {
     writeFileSync(join(frameDir, `r${n}.png`), fr);
   }
 })();
-
+const pause = (ms: number) => asha.page.waitForTimeout(ms);
 const type = async (page: Page, lines: string[]) => {
   for (const [i, line] of lines.entries()) {
     if (i > 0) await page.keyboard.press('Enter');
     await page.keyboard.type(line, { delay: 55 });
   }
 };
-// Visible text of an editor, line by line (Monaco positions its line elements absolutely).
-const text = (page: Page) => page.evaluate(() => Array.from(document.querySelectorAll<HTMLElement>('.code-pane .view-lines .view-line'))
-  .sort((a, b) => parseFloat(a.style.top) - parseFloat(b.style.top))
-  .map(l => l.innerText.replace(/ /g, ' ').trimEnd()).join('\n'));
 
-// Asha writes the function. Once her braces exist, Ravi adds a test call below them, while she keeps typing.
+await pause(1200);
+// Asha picks the language and a problem: the statement, its tests and the starter code reach both windows.
+await asha.page.selectOption('select[aria-label="Language"]', 'javascript');
+await asha.page.waitForFunction(() => document.querySelector('.code-pane .view-lines')?.textContent?.includes('readline'));
+await pause(600);
+await asha.page.selectOption('select[aria-label="Load an example problem"]', 'pair-sum');
+await ravi.page.waitForSelector('.markdown h1');
+await pause(2000);
+
+// Ravi writes the solution under the starter; once he's started, Asha adds a note at the top.
+await ravi.page.click('.code-pane .view-lines');
+await ravi.page.keyboard.press('Control+End');
 await Promise.all([
-  type(asha.page, [
-    '// Two Sum: indices of two numbers that add up to target',
-    'function twoSum(nums, target) {',
+  type(ravi.page, [
     'const seen = new Map();',
-    'for (let i = 0; i < nums.length; i++) {',
-    'const j = seen.get(target - nums[i]);',
-    'if (j !== undefined) return [j, i];',
-    'seen.set(nums[i], i);',
+    'nums.forEach((x, i) => {',
+    'const j = seen.get(target - x);',
+    'if (j !== undefined) console.log(j, i);',
+    'seen.set(x, i);',
   ]),
   (async () => {
-    await ravi.page.waitForFunction(() => document.querySelector('.code-pane .view-lines')?.textContent?.includes('Map()'));
-    await ravi.page.keyboard.press('Control+End');
-    await ravi.page.keyboard.press('Enter');
-    await type(ravi.page, ['', 'console.log(twoSum([2, 7, 11, 15], 9)); // [0, 1]']);
+    await asha.page.waitForFunction(() => document.querySelector('.code-pane .view-lines')?.textContent?.includes('forEach'));
+    await asha.page.click('.code-pane .view-lines');
+    await asha.page.keyboard.press('Control+Home');
+    await asha.page.keyboard.press('Enter'); // a fresh first line for the note
+    await asha.page.keyboard.press('ArrowUp');
+    await asha.page.keyboard.type('// Asha: walk me through the time complexity.', { delay: 55 });
   })(),
 ]);
-await asha.page.waitForTimeout(2500); // let the last ops land, and hold the final frame
+await pause(800);
+
+// Ravi runs the tests (Ctrl+Enter); the result reaches both windows.
+await ravi.page.keyboard.press('Control+Enter');
+await Promise.all([asha, ravi].map(w => w.page.waitForSelector('text=4 of 4 tests passed', { timeout: 30_000 })));
+await pause(3000); // hold the final frame
 recording = false;
 await recorder;
 const fps = (frames / ((Date.now() - recordStart) / 1000)).toFixed(2); // play back at real speed
 
+// Visible text of an editor, line by line (Monaco positions its line elements absolutely).
+const text = (page: Page) => page.evaluate(() => Array.from(document.querySelectorAll<HTMLElement>('.code-pane .view-lines .view-line'))
+  .sort((a, b) => parseFloat(a.style.top) - parseFloat(b.style.top))
+  .map(l => l.innerText.replace(/ /g, ' ').trimEnd()).join('\n'));
 const [a, r] = [await text(asha.page), await text(ravi.page)];
 const server: { text: string; revision: number } =
   await (await fetch(`${SERVER}/api/rooms/${roomUrl.split('/r/')[1]}`)).json();

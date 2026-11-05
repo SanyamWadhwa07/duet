@@ -10,9 +10,9 @@ The sync engine is my own operational transformation (OT) with a central server.
 
 [![Duet launch video: two people, one file, zero lost keystrokes](docs/brag.jpg)](docs/brag.mp4)
 
-![Two browsers editing one Duet room on the live site](docs/demo.gif)
+![A mock interview in one Duet room on the live site](docs/demo.gif)
 
-*Two real browser windows, Asha (left) and Ravi (right), typing in the same room on the live site at the same time. Each sees the other's cursor in the other's colour, and both end up with the same text as the server. The GIF is recorded by `npm run demo` (`packages/bench/src/record-demo.ts`), which also checks that final match.*
+*A mock interview on the live site, in two real browser windows. Asha (left) starts a named session as the interviewer and loads an example problem. Ravi (right) joins from the link as the candidate and writes the solution while Asha adds a note at the top of the same file. Ravi runs the tests and both windows show 4 of 4 passing. The GIF is recorded by `npm run demo` (`packages/bench/src/record-demo.ts`), which also checks that both editors end with the same text as the server.*
 
 **Roles:** the person who creates a room is the interviewer. They write the problem (or upload it as `.md`), set the test cases and run the timer. Candidates join from the plain link, read the problem, write code and run it. The server enforces the roles, and "Invite interviewer" adds a co-interviewer.
 
